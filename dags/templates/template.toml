@@ -25,7 +25,7 @@
     # 0.001 = 110 M
     # 0.0001 = 11 M
     # 0.00001 = 1.1 M
-    simplify_tolerance = 0.4
+    simplify_tolerance = 10
     minimum_area = 1 # remove when a polygon is less than this area (unit square meter), 0 means keep all shape
     average_panel_size = 2.541 # unit: square meter. This will use to estimate number of panels by `polygon_area`/`average_panel_size`.
 
