@@ -82,8 +82,6 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
     - ${AIRFLOW_PROJ_DIR:-.}/toml_config_files:/opt/airflow/toml_config_files
-    # SSH key สำหรับต่อเครื่องอาจารย์ (อยู่นอก repo, ตั้ง SSH_KEY_DIR ใน .env)
-    - ${SSH_KEY_DIR:-./ssh}:/opt/airflow/ssh:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -100,7 +98,7 @@ services:
     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     MYSQL_DATABASE: ${MYSQL_DATABASE}
    ports:
-    - "3307:3306"
+    - "127.0.0.1:3307:3306"
    volumes:
     - mysql_data:/var/lib/mysql
     - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -129,7 +127,7 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s

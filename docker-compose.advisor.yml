@@ -1,0 +1,14 @@
+# Extra settings for running on the advisor's Ubuntu machine.
+# Enable it with COMPOSE_FILE=docker-compose.yml:docker-compose.advisor.yml in .env
+#
+# The scheduler (which runs the tasks with LocalExecutor) gets:
+#   - the host's Docker socket, to start the advisor's `solar` container
+#   - the advisor's project folder, read-only and at the SAME path as on the host,
+#     because docker compose resolves ../config, ../weights in that compose file on the host
+services:
+  airflow-scheduler:
+    group_add:
+      - "${DOCKER_GID}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${ADVISOR_PROJECT_DIR}:${ADVISOR_PROJECT_DIR}:ro

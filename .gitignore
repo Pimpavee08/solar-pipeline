@@ -1,5 +1,4 @@
 .env
-ssh/
 logs/
 __pycache__/
 # airflow.cfg holds generated secret_key / jwt_secret; Airflow writes a fresh one on first start

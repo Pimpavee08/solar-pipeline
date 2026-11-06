@@ -1,8 +1,6 @@
 import os
 import re
-import shlex
-import tarfile
-import tempfile
+import subprocess
 from pathlib import Path
 
 from airflow.providers.mysql.hooks.mysql import MySqlHook
@@ -13,150 +11,100 @@ MAX_RETRIES = 5
 # Folder that task 1 writes config_<tid>.toml into
 CONFIG_DIR = '/opt/airflow/toml_config_files/'
 
-# Airflow Connection (type SSH) that points at the advisor's Ubuntu machine
-SSH_CONN_ID = 'advisor_ssh'
+# Set in .env on the advisor's machine (see docker-compose.advisor.yml)
+#   ADVISOR_PROJECT_DIR : the advisor's project, e.g. /home/gputest/solar-project-1.0.4
+#   HOST_DATA_DIR       : this repo's data/ folder as the HOST sees it, e.g. /home/gputest/solar-pipeline/data
+# HOST_DATA_DIR is handed to the advisor's container as DATA_PATH, so it reads and writes
+# our own data/ folder instead of the advisor's solar-data/
+ADVISOR_COMPOSE_FILE = 'dist/docker-compose.yml'
 
-# Settings that depend on the advisor's machine live in Airflow Variables (Admin -> Variables),
-# so they can be filled in later without touching this file
-#   advisor_project_dir : folder that holds run.sh, e.g. /home/<user>/solar-ai
-#   advisor_run_mode    : the number in ./run.sh "5 -f <config>"
-#   advisor_cleanup     : "true" = delete the job folder on the advisor's machine after download
-DEFAULT_RUN_MODE = "5"
+# Inside the advisor's container, DATA_PATH is mounted at /app/data and paths in the config
+# are relative to /app, so a job lives at /app/data/inference/<job_name>/
+CONTAINER_DATA_DIR = '/app/data'
+CONTAINER_INFERENCE_PATH = 'data/inference/'
 
-# Folder (relative to advisor_project_dir) that run.sh reads jobs from, seen in the sample .vrt
-REMOTE_INFERENCE_PATH = 'data/inference/'
+# Number given to the advisor's program: 5 = solar.inference
+RUN_MODE = "5"
 
 # Longest time one inference run may take before the task fails (seconds)
 INFERENCE_TIMEOUT_SEC = 3 * 60 * 60
 
 # -----------------------------------------------------------------------------
-# Remote helpers
+# Helpers
 # -----------------------------------------------------------------------------
 
-def run_remote(ssh_hook, client, command, timeout=600):
-    # Run one shell command on the advisor's machine, raise if it exits non-zero
-    print(f"[remote] {command}")
-    exit_status, stdout, stderr = ssh_hook.exec_ssh_client_command(
-        client, command, get_pty=False, environment=None, timeout=timeout
-    )
-    out = stdout.decode(errors='replace')
-    err = stderr.decode(errors='replace')
-    if out.strip():
-        print(out[-5000:])
-    if exit_status != 0:
-        raise RuntimeError(f"Remote command failed (exit {exit_status}): {command}\n{err[-2000:]}")
-    return out
+def run_command(args, env, timeout):
+    # Run one command, print its output, raise if it exits non-zero
+    print(f"[run] {' '.join(args)}")
+    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=timeout)
+    if result.stdout.strip():
+        print(result.stdout[-5000:])
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed (exit {result.returncode}): {' '.join(args)}\n{result.stderr[-2000:]}")
+    return result.stdout
 
 
-def make_remote_config(local_config_text, tid):
-    # Same config, but with paths the advisor's machine understands.
-    # job_name = tid keeps the remote folder name free of spaces / Thai characters
-    remote_config = re.sub(
+def make_container_config(local_config_text, tid):
+    # Same config, but with paths as the advisor's container sees them.
+    # job_name = tid, because fetch_image already put the image in data/inference/<tid>/input
+    container_config = re.sub(
         r"^(\s*)inference_path\s*=.*$",
-        rf"\g<1>inference_path = '{REMOTE_INFERENCE_PATH}'",
+        rf"\g<1>inference_path = '{CONTAINER_INFERENCE_PATH}'",
         local_config_text,
         flags=re.MULTILINE,
     )
-    remote_config = re.sub(
+    container_config = re.sub(
         r"^(\s*)job_name\s*=.*$",
         rf"\g<1>job_name = '{tid}'",
-        remote_config,
+        container_config,
         flags=re.MULTILINE,
     )
-    return remote_config
+    return container_config
 
 # -----------------------------------------------------------------------------
 # The actual inference work for ONE task (shared by pending and retry paths)
 # -----------------------------------------------------------------------------
 
 def run_job(tid):
-    # Heavy imports live here, so DAG parsing stays fast
     import tomllib
-    from airflow.providers.ssh.hooks.ssh import SSHHook
-    from airflow.sdk import Variable
 
-    project_dir = Variable.get("advisor_project_dir")
-    run_mode = Variable.get("advisor_run_mode", default=DEFAULT_RUN_MODE)
-    cleanup = Variable.get("advisor_cleanup", default="false").lower() == "true"
+    project_dir = os.environ["ADVISOR_PROJECT_DIR"]
+    host_data_dir = os.environ["HOST_DATA_DIR"]
 
-    # Local job folder and input/ come from the config file generated by task 1
+    # Job folder and input/ come from the config file generated by task 1
     config_file_path = os.path.join(CONFIG_DIR, f"config_{tid}.toml")
     with open(config_file_path, "r", encoding="utf-8") as file:
         local_config_text = file.read()
     cfg = tomllib.loads(local_config_text)["inference"]
 
-    local_job_dir = Path(cfg["inference_path"])
-    local_input_dir = local_job_dir / cfg["input_folder"]
-    output_folder = cfg["output_folder"]
+    job_dir = Path(cfg["inference_path"])
+    input_dir = job_dir / cfg["input_folder"]
+    output_dir = job_dir / cfg["output_folder"]
 
-    if not any(local_input_dir.glob("*.tif")):
-        raise FileNotFoundError(f"No input image in '{local_input_dir}'.")
+    if not any(input_dir.glob("*.tif")):
+        raise FileNotFoundError(f"No input image in '{input_dir}'.")
 
-    remote_job_dir = f"{project_dir.rstrip('/')}/{REMOTE_INFERENCE_PATH}{tid}"
-    remote_config_rel = f"{REMOTE_INFERENCE_PATH}{tid}/config.toml"
+    # A: Write the config the advisor's program will read, inside the job folder
+    (job_dir / "config.toml").write_text(make_container_config(local_config_text, tid), encoding="utf-8")
+    container_config_path = f"{CONTAINER_DATA_DIR}/inference/{tid}/config.toml"
 
-    ssh_hook = SSHHook(ssh_conn_id=SSH_CONN_ID)
+    # B: Same steps as the advisor's run.sh, minus the image build (the image is already built there)
+    env = {**os.environ, "DATA_PATH": host_data_dir}
+    compose = ["docker", "compose", "-f", f"{project_dir}/{ADVISOR_COMPOSE_FILE}"]
 
-    with tempfile.TemporaryDirectory() as tmp, ssh_hook.get_conn() as client:
-        tmp = Path(tmp)
+    # mlflow serves the model registry; --no-recreate leaves it alone if it is already running
+    run_command(compose + ["up", "-d", "--no-recreate", "mlflow"], env, timeout=300)
+    run_command(
+        compose + ["run", "--rm", "solar", RUN_MODE, "-f", container_config_path],
+        env,
+        timeout=INFERENCE_TIMEOUT_SEC,
+    )
 
-        # Step 3: pack config + input/ into one file and upload it (one file is much faster than many)
-        remote_config_path = tmp / "config.toml"
-        remote_config_path.write_text(make_remote_config(local_config_text, tid), encoding="utf-8")
+    # C: Make sure the final shapefile exists (in case the program fails but still exits 0)
+    if not any(output_dir.glob("*-corrected.shp")):
+        raise FileNotFoundError(f"No *-corrected.shp in '{output_dir}' after inference.")
 
-        upload_tar = tmp / "job.tar.gz"
-        with tarfile.open(upload_tar, "w:gz") as tar:
-            tar.add(remote_config_path, arcname="config.toml")
-            tar.add(local_input_dir, arcname=cfg["input_folder"])
-
-        run_remote(ssh_hook, client, f"mkdir -p {shlex.quote(remote_job_dir)}")
-
-        sftp = client.open_sftp()
-        try:
-            print(f"Uploading {upload_tar.stat().st_size / 1e6:.1f} MB to {remote_job_dir}")
-            sftp.put(str(upload_tar), f"{remote_job_dir}/job.tar.gz")
-
-            run_remote(
-                ssh_hook, client,
-                f"cd {shlex.quote(remote_job_dir)} && tar -xzf job.tar.gz && rm job.tar.gz",
-            )
-
-            # Step 4: run the advisor's inference command
-            run_args = f"{run_mode} -f {remote_config_rel}"
-            run_remote(
-                ssh_hook, client,
-                f"cd {shlex.quote(project_dir)} && ./run.sh {shlex.quote(run_args)}",
-                timeout=INFERENCE_TIMEOUT_SEC,
-            )
-
-            # Step 5: make sure the final shapefile exists before downloading
-            remote_output_dir = f"{remote_job_dir}/{output_folder}"
-            run_remote(
-                ssh_hook, client,
-                f"ls {shlex.quote(remote_output_dir)}/*-corrected.shp",
-            )
-
-            # Download only output/ (input_tile and mask_tile_raw are hundreds of MB we don't need)
-            run_remote(
-                ssh_hook, client,
-                f"cd {shlex.quote(remote_job_dir)} && tar -czf output.tar.gz {shlex.quote(output_folder)}",
-            )
-            download_tar = tmp / "output.tar.gz"
-            sftp.get(f"{remote_job_dir}/output.tar.gz", str(download_tar))
-            print(f"Downloaded {download_tar.stat().st_size / 1e6:.1f} MB")
-        finally:
-            sftp.close()
-
-        # Step 6 (save locally): unpack next to the original input/, which is kept as is
-        with tarfile.open(download_tar, "r:gz") as tar:
-            tar.extractall(local_job_dir, filter="data")
-
-        if cleanup:
-            run_remote(ssh_hook, client, f"rm -rf {shlex.quote(remote_job_dir)}")
-        else:
-            run_remote(ssh_hook, client, f"rm -f {shlex.quote(remote_job_dir)}/output.tar.gz")
-
-    return local_job_dir / output_folder
+    return output_dir
 
 # -----------------------------------------------------------------------------
 # Status bookkeeping for ONE task
@@ -186,7 +134,7 @@ def process_task(connection, cursor, task):
         connection.commit()
 
         output_path = run_job(tid)
-        print(f"Saved inference output at: {output_path}")
+        print(f"Inference output at: {output_path}")
 
         # Mark Task_Step and Task as completed and hand over to the next step
         cursor.execute(
@@ -269,7 +217,7 @@ def run_inference_file():
             print(f"No tasks currently waiting for inference.")
             return
 
-        # 2.1 Pending tasks (one at a time, the advisor's GPU runs one job at a time)
+        # 2.1 Pending tasks (one at a time, the GPU runs one job at a time)
         if pending_tasks:
             for task in pending_tasks:
                 print(f"Processing Task ID: {task['tid']}")
