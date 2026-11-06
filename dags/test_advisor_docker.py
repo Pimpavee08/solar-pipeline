@@ -11,9 +11,9 @@ def test_advisor_docker():
     BashOperator(
         task_id="check_docker",
         bash_command=(
-            "docker version --format '{{.Server.Version}}' && "
+            "docker version | grep -A2 Server && "
             "docker compose -f \"$ADVISOR_PROJECT_DIR/dist/docker-compose.yml\" config --services && "
-            "docker compose -f \"$ADVISOR_PROJECT_DIR/dist/docker-compose.yml\" images && "
+            "docker images | grep -E 'dist-(solar|mlflow)' && "
             "ls \"$ADVISOR_PROJECT_DIR/config\" && echo \"HOST_DATA_DIR=$HOST_DATA_DIR\""
         ),
     )
