@@ -14,11 +14,20 @@ Airflow + MySQL (Docker) สำหรับตรวจจับแผงโซ�
 
 โปรแกรมของอาจารย์อ่านและเขียนเฉพาะใน `data/` ของ repo นี้ ไม่แตะ `solar-data/` ของอาจารย์
 
+## หน้าเว็บ (`web/`)
+
+Flask (Solar Detection Console) รันเป็นคอนเทนเนอร์ `solar-web` ต่อ MySQL ผ่านเครือข่ายของ compose
+เปิดที่ **http://localhost:5050** บนเครื่องอาจารย์ (พอร์ต 5000 เป็นของ mlflow ของอาจารย์)
+ผูกไว้กับ `127.0.0.1` เปิดจากเครื่องอื่นต้องผ่าน SSH tunnel หรือ Tailscale
+
+แก้หน้าเว็บที่ `web/` แล้วอัปเดตด้วย `docker compose up -d --build web`
+
 ## ติดตั้งบนเครื่องอาจารย์
 
 1. `git clone` repo นี้ แล้ว `mkdir -p data toml_config_files`
 2. `cp .env.example .env` แล้วใส่ค่า
    - `AIRFLOW_UID` = `id -u`
+   - `WEB_SECRET_KEY` = `openssl rand -hex 32`
    - เปิดบรรทัดส่วนเครื่องอาจารย์: `COMPOSE_FILE`, `DOCKER_GID` (`getent group docker | cut -d: -f3`), `ADVISOR_PROJECT_DIR`, `HOST_DATA_DIR` (path เต็มของ `data/`)
 3. `docker compose up -d --build` แล้วเปิด http://localhost:8080 (เปิดได้จากในเครื่องเท่านั้น)
 4. ใน Airflow UI

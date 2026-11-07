@@ -108,6 +108,26 @@ services:
     timeout: 5s
     retries: 10
 
+  # Solar Detection Console (Flask) — talks to the mysql service inside the compose network.
+  # Host port 5050 because the advisor's mlflow already uses 5000.
+  # Bound to 127.0.0.1: open it on the advisor's machine, or through an SSH tunnel / Tailscale.
+  web:
+    build: ./web
+    container_name: solar-web
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+      SECRET_KEY: ${WEB_SECRET_KEY:?set WEB_SECRET_KEY in .env}
+    ports:
+      - "127.0.0.1:5050:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
   postgres:
     image: postgres:16
     environment:

@@ -1,0 +1,305 @@
+/* =============================================================
+   Solar Detection Console — หน้าจออย่างเดียว
+   ไม่มีการเรียกข้อมูล ไม่มีไลบรารีภายนอก แก้ไฟล์นี้ไฟล์เดียวก็เปลี่ยนหน้าตาได้ทั้งระบบ
+   ============================================================= */
+
+/* ---------- ตัวแปรสี/ขนาด: อยากเปลี่ยนธีมแก้แค่ตรงนี้ ---------- */
+:root{
+  --bg:#0f141a;        /* พื้นหลังนอกสุด */
+  --panel:#161d26;     /* แผงหลัก (header, sidebar) */
+  --panel-2:#1d2732;   /* การ์ด, ช่องกรอก */
+  --panel-3:#243040;   /* ปุ่มรอง */
+  --line:#2a3644;      /* เส้นขอบ */
+  --text:#e6edf3;
+  --muted:#8b9bb0;
+  --muted-2:#5f7186;
+  --accent:#facc15;        /* สีหลัก (เหลืองแสงอาทิตย์) */
+  --accent-ink:#1a1400;    /* ตัวอักษรบนพื้นสีหลัก */
+  --info:#38bdf8;
+  --ok:#4ade80;
+  --warn:#fbbf24;
+  --err:#f87171;
+  --r:10px;
+  --r-sm:7px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text); overflow:hidden;
+  font-family:'Segoe UI',Tahoma,'Noto Sans Thai',sans-serif; font-size:14px;
+  display:grid; grid-template-rows:52px 1fr;
+}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--panel-3);border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- แถบบนสุด ---------- */
+header{
+  display:flex;align-items:center;gap:16px;padding:0 16px;
+  background:var(--panel);border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
+/* ไอคอนดวงอาทิตย์ วาดด้วย CSS ล้วน ไม่ต้องใช้ไฟล์ภาพ */
+.brand .dot{
+  width:22px;height:22px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#fde68a,var(--accent));
+  box-shadow:0 0 12px rgba(250,204,21,.45);
+}
+.brand small{display:block;font-size:11px;font-weight:400;color:var(--muted);letter-spacing:0}
+.spacer{flex:1}
+.hlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;border-radius:var(--r-sm)}
+.hlink:hover{color:var(--text);background:var(--panel-2)}
+.pill{
+  display:flex;align-items:center;gap:7px;background:var(--panel-2);
+  border:1px solid var(--line);padding:5px 11px;border-radius:99px;
+  font-size:12px;color:var(--muted);
+}
+.pill b{color:var(--text);font-weight:600}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.user-chip b{color:var(--text)}
+
+/* ---------- โครงหลัก: แผงซ้าย + พื้นที่แผนที่ ---------- */
+main{display:grid;grid-template-columns:336px 1fr;min-height:0}
+aside{
+  background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+}
+.tabs{display:flex;border-bottom:1px solid var(--line);flex-shrink:0}
+.tab{flex:1;padding:11px 0;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;transition:.15s}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);background:rgba(250,204,21,.05)}
+.pane{flex:1;overflow-y:auto;padding:16px;display:none}
+.pane.on{display:block}
+
+/* ---------- ฟอร์ม ---------- */
+.step{margin-bottom:20px}
+.step-h{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.step-n{
+  width:20px;height:20px;border-radius:50%;background:var(--panel-3);color:var(--muted);
+  font-size:11px;font-weight:700;display:grid;place-items:center;flex-shrink:0;
+}
+.step.ready .step-n{background:var(--accent);color:var(--accent-ink)}
+.step-h h3{font-size:13px;font-weight:600}
+.hint{font-size:11.5px;color:var(--muted-2);line-height:1.6;margin-bottom:8px}
+label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px}
+input[type=text],input[type=email],input[type=password],input[type=number],select{
+  width:100%;padding:9px 10px;background:var(--bg);border:1px solid var(--line);
+  border-radius:var(--r-sm);transition:.15s;
+}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(250,204,21,.12)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{
+  background:var(--panel-2);border:1px solid var(--line);padding:5px 10px;
+  border-radius:99px;font-size:11.5px;color:var(--muted);transition:.15s;
+}
+.chip:hover,.chip.on{border-color:var(--accent);color:var(--text)}
+.btn{
+  width:100%;padding:11px;border-radius:var(--r-sm);font-weight:600;transition:.15s;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-primary:disabled{background:var(--panel-3);color:var(--muted-2);cursor:not-allowed;filter:none}
+.btn-ghost{background:var(--panel-3);color:var(--muted)}
+.btn-ghost:hover{background:var(--line);color:var(--text)}
+
+/* กล่องแสดงพื้นที่ที่เลือก */
+.aoi-box{
+  background:var(--panel-2);border:1px dashed var(--line);border-radius:var(--r-sm);
+  padding:11px;font-size:12px;color:var(--muted);text-align:center;
+}
+.aoi-box.set{border-style:solid;border-color:rgba(250,204,21,.4);text-align:left;color:var(--text)}
+.aoi-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11.5px;margin-top:7px}
+.aoi-grid span:nth-child(odd){color:var(--muted-2)}
+.aoi-grid span:nth-child(even){font-variant-numeric:tabular-nums}
+.alert{margin-top:8px;padding:8px 10px;border-radius:var(--r-sm);font-size:11.5px;line-height:1.5}
+.alert-warn{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:var(--warn)}
+
+/* ---------- รายการงาน ---------- */
+.search{margin-bottom:12px}
+.job{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:11px;margin-bottom:8px;cursor:pointer;transition:.15s;
+}
+.job:hover{border-color:var(--muted-2)}
+.job.on{border-color:var(--accent);background:rgba(250,204,21,.07)}
+.job-top{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.job-name{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:99px;flex-shrink:0;letter-spacing:.3px}
+.b-done{background:rgba(74,222,128,.15);color:var(--ok)}
+.b-run{background:rgba(56,189,248,.15);color:var(--info)}
+.b-fail{background:rgba(248,113,113,.15);color:var(--err)}
+.b-wait{background:var(--panel-3);color:var(--muted)}
+.job-meta{display:flex;gap:12px;font-size:11.5px;color:var(--muted)}
+.job-meta b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.job-acts{display:flex;gap:6px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line);flex-wrap:wrap}
+.icon-btn{
+  padding:5px 9px;border-radius:5px;font-size:11.5px;background:var(--panel-3);
+  color:var(--muted);text-decoration:none;transition:.15s;
+}
+.icon-btn:hover{background:var(--line);color:var(--text)}
+.icon-btn.danger:hover{background:rgba(248,113,113,.18);color:var(--err)}
+.empty{text-align:center;color:var(--muted-2);font-size:12.5px;padding:34px 12px;line-height:1.7}
+
+/* ---------- แถบความคืบหน้า 4 ขั้น ---------- */
+.stepper{margin-top:10px}
+.pstep{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:12px;color:var(--muted-2)}
+.pstep .mk{
+  width:16px;height:16px;border-radius:50%;border:2px solid var(--line);flex-shrink:0;
+  display:grid;place-items:center;font-size:9px;transition:.2s;
+}
+.pstep.done{color:var(--muted)}
+.pstep.done .mk{background:var(--ok);border-color:var(--ok);color:#052e16}
+.pstep.active{color:var(--info);font-weight:600}
+.pstep.active .mk{border-color:var(--info);border-right-color:transparent;animation:spin .8s linear infinite}
+.pstep.failed{color:var(--err)}
+.pstep.failed .mk{background:var(--err);border-color:var(--err);color:#450a0a}
+.step-time{color:var(--muted-2);font-size:10.5px;margin-left:6px}
+.pstep .log-link{margin-left:auto;font-size:10.5px;color:var(--info);text-decoration:underline;flex-shrink:0;padding-left:8px}
+.rerun-row{display:flex;gap:6px;margin-top:10px}
+[hidden]{display:none!important}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- พื้นที่แผนที่ (ตอนนี้เป็นที่ว่างไว้ให้ใส่แผนที่เอง) ---------- */
+.map-wrap{position:relative;min-width:0}
+.map-placeholder{
+  position:absolute;inset:0;
+  background:
+    linear-gradient(rgba(42,54,68,.45) 1px, transparent 1px) 0 0/40px 40px,
+    linear-gradient(90deg, rgba(42,54,68,.45) 1px, transparent 1px) 0 0/40px 40px,
+    radial-gradient(circle at 50% 45%, #18212c, #0d1219 70%);
+  /* เว้นขอบซ้าย/ขวาให้พ้นแผงลอย ข้อความจะได้ไม่ถูกบัง */
+  display:grid;place-items:center;text-align:center;padding:24px 236px;
+}
+.map-placeholder .ph-icon{font-size:40px;opacity:.5;margin-bottom:10px}
+.map-placeholder h2{font-size:15px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.map-placeholder p{font-size:12px;color:var(--muted-2);line-height:1.7;max-width:380px}
+.map-placeholder code{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
+  padding:1px 6px;font-size:11.5px;color:var(--accent);
+}
+
+/* ---------- แผงลอยบนแผนที่ ---------- */
+.float{
+  position:absolute;z-index:500;background:rgba(22,29,38,.94);border:1px solid var(--line);
+  border-radius:var(--r);backdrop-filter:blur(10px);box-shadow:0 8px 28px rgba(0,0,0,.45);
+}
+.f-tools{top:12px;left:12px;display:flex;padding:4px;gap:3px}
+.tool{padding:7px 11px;border-radius:var(--r-sm);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tool:hover{background:var(--panel-2);color:var(--text)}
+.tool.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+
+.f-layers{top:12px;right:12px;width:212px;padding:12px;font-size:12px}
+.f-layers h4{font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px}
+.f-layers h4:not(:first-child){margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.lrow{display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer}
+.lrow input{width:auto;accent-color:var(--accent)}
+.lrow span{flex:1}
+input[type=range]{width:100%;accent-color:var(--accent);margin-top:6px}
+
+.f-stats{
+  bottom:12px;left:12px;right:12px;display:grid;grid-template-columns:repeat(4,1fr);
+  gap:1px;overflow:hidden;background:var(--line);
+}
+.stat{background:rgba(22,29,38,.94);padding:11px 14px}
+.stat .k{font-size:10.5px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.stat .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--accent)}
+.stat .v small{font-size:11px;font-weight:500;color:var(--muted);margin-left:3px}
+
+.f-readout{top:60px;left:12px;padding:8px 12px;font-size:12px;display:none}
+.f-readout.on{display:block}
+.f-readout b{color:var(--accent);font-variant-numeric:tabular-nums}
+
+/* ลิ้นชักรายการที่ตรวจพบ */
+.drawer{
+  position:absolute;top:12px;right:12px;bottom:76px;width:268px;z-index:500;
+  display:none;flex-direction:column;overflow:hidden;
+}
+.drawer.on{display:flex}
+.drawer-h{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--line);flex-shrink:0}
+.drawer-h h4{font-size:12.5px;flex:1}
+.drawer-body{overflow-y:auto;padding:8px}
+.det{
+  padding:8px 10px;border-radius:var(--r-sm);margin-bottom:5px;cursor:pointer;
+  background:var(--panel-2);border:1px solid transparent;transition:.12s;
+}
+.det:hover,.det.on{border-color:var(--accent)}
+.det-top{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+.det-top b{color:var(--accent)}
+.det-sub{font-size:11px;color:var(--muted-2);display:flex;gap:10px}
+
+/* ---------- หน้าต่าง log ---------- */
+#logbox{
+  position:fixed;inset:0;z-index:8000;background:rgba(6,9,13,.78);
+  display:none;place-items:center;padding:24px;backdrop-filter:blur(3px);
+}
+#logbox.on{display:grid}
+.log-card{
+  width:100%;max-width:860px;max-height:82vh;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;
+}
+.log-head{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line)}
+.log-head h4{font-size:13px;flex:1}
+.log-head select{width:auto;padding:5px 8px;font-size:12px}
+.log-body{
+  flex:1;overflow:auto;margin:0;padding:14px 16px;font-size:11.5px;line-height:1.65;
+  font-family:'Cascadia Mono',Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:var(--muted);
+}
+.log-body .hl{color:var(--err)}
+
+/* ---------- หน้าเข้าสู่ระบบ ---------- */
+#gate{position:fixed;inset:0;z-index:9000;background:var(--bg);display:none;place-items:center;padding:24px}
+#gate.on{display:grid}
+.gate-card{
+  width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;padding:26px;
+}
+.gate-card .brand{margin-bottom:6px}
+.gate-sub{font-size:12px;color:var(--muted-2);margin-bottom:20px;line-height:1.6}
+.gate-card label{margin-top:12px}
+.gate-card .btn{margin-top:18px}
+.gate-switch{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
+.gate-switch button{color:var(--accent);font-size:12px;text-decoration:underline}
+.gate-err{
+  margin-top:12px;padding:9px 11px;border-radius:var(--r-sm);font-size:12px;
+  background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);
+  color:var(--err);display:none;line-height:1.5;
+}
+.gate-err.on{display:block}
+
+/* ---------- ข้อความแจ้งเตือนมุมล่าง ---------- */
+#toasts{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;
+  display:flex;flex-direction:column;gap:8px;align-items:center;
+}
+.toast{
+  background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--info);
+  padding:11px 16px;border-radius:var(--r-sm);font-size:13px;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);animation:rise .25s ease;
+}
+.toast.ok{border-left-color:var(--ok)}
+.toast.err{border-left-color:var(--err)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+
+/* ---------- จอกลาง ---------- */
+@media(max-width:1180px){
+  main{grid-template-columns:288px 1fr}
+  .map-placeholder{padding:24px 200px}
+  .f-layers{width:184px;padding:10px}
+  .drawer{width:228px}
+  .stat{padding:9px 11px}
+  .stat .v{font-size:17px}
+}
+/* ---------- จอเล็ก/มือถือ ---------- */
+@media(max-width:760px){
+  main{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  aside{border-right:none;border-bottom:1px solid var(--line);max-height:46vh}
+  .map-placeholder{padding:24px}
+  .f-stats{grid-template-columns:repeat(2,1fr)}
+  .f-layers,.drawer{display:none!important}
+  .brand small{display:none}
+  .pill{display:none}
+}

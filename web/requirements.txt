@@ -1,0 +1,5 @@
+flask>=3.0
+pymysql>=1.1
+cryptography
+python-dotenv
+gunicorn>=22

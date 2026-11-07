@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!--
+  Solar Detection Console
+
+  หน้านี้ดึงข้อมูลจริงจากฐานข้อมูลผ่าน app.py — ต้องเปิดผ่าน  python app.py
+  แล้วเข้า http://localhost:5000  (ดับเบิลคลิกไฟล์นี้ตรง ๆ จะไม่มีข้อมูล)
+
+  ส่วนที่ยังไม่ได้ต่อ (แผนที่ ระบบประมวลผลจริง) เขียนกำกับไว้ด้วย TODO
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solar Detection Console</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============================================================
+     แถบบนสุด
+     ============================================================ -->
+<header>
+  <div class="brand">
+    <div class="dot"></div>
+    <div>Solar Detection Console<small>Solar panel detection from satellite imagery</small></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="pill" id="pill_job">No job selected</div>
+  <div class="user-chip">
+    <b id="user_name">&mdash;</b>
+    <button class="hlink" onclick="signOut()">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============================================================
+       แผงซ้าย
+       ============================================================ -->
+  <aside>
+    <div class="tabs">
+      <button class="tab on" data-pane="new">New job</button>
+      <button class="tab" data-pane="jobs">Jobs <span id="jobs_count">(0)</span></button>
+    </div>
+
+    <!-- ---------- แท็บ: สร้างงานใหม่ ---------- -->
+    <div class="pane on" id="pane_new">
+
+      <div class="step ready" id="s1">
+        <div class="step-h"><div class="step-n">1</div><h3>Choose the area to scan</h3></div>
+        <p class="hint">Click &ldquo;Draw area&rdquo; on the map, then drag a box over the area you want &mdash; or pick one of the sample areas below.</p>
+        <div class="chips">
+          <!-- data-bbox = min_lat, min_lng, max_lat, max_lng -->
+          <button class="chip on" data-bbox="14.070,100.602,14.074,100.607">SIIT Rangsit</button>
+          <button class="chip" data-bbox="13.518,100.650,13.522,100.655">Bang Pu Industrial Estate</button>
+          <button class="chip" data-bbox="13.744,100.532,13.748,100.537">Siam, Bangkok</button>
+        </div>
+
+        <div class="aoi-box set" id="aoi_box">
+          <b>Selected area</b>
+          <div class="aoi-grid">
+            <span>South-west</span><span id="aoi_sw">&mdash;</span>
+            <span>North-east</span><span id="aoi_ne">&mdash;</span>
+            <span>Size</span><span id="aoi_size">&mdash;</span>
+            <span>Tiles</span><span id="aoi_tiles">&mdash;</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step ready" id="s2">
+        <div class="step-h"><div class="step-n">2</div><h3>Job settings</h3></div>
+        <div style="margin-bottom:10px">
+          <label>Job title &mdash; titles may repeat; the system identifies jobs by tid</label>
+          <input type="text" id="title" placeholder="e.g. SIIT Rangsit rooftop survey" maxlength="200">
+        </div>
+        <div>
+          <label>Zoom level &mdash; higher is more detailed but takes longer</label>
+          <select id="zoom">
+            <option value="17">17 &mdash; Coarse (~1.2 m/pixel)</option>
+            <option value="18" selected>18 &mdash; Standard (~0.6 m/pixel)</option>
+            <option value="19">19 &mdash; Detailed (~0.3 m/pixel)</option>
+            <option value="20">20 &mdash; Very detailed (~0.15 m/pixel)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="step" id="s3">
+        <div class="step-h"><div class="step-n">3</div><h3>Run the detection</h3></div>
+        <button class="btn btn-primary" id="btn_run">Start solar panel detection</button>
+
+        <!-- แถบความคืบหน้าของงานที่เลือกอยู่ — ui.js เติมให้จากตาราง task_step -->
+        <div class="stepper" id="stepper"></div>
+        <div class="rerun-row" id="rerun_row" hidden>
+          <button class="btn btn-ghost" id="btn_rerun">Run again from the start</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- แท็บ: รายการงาน ---------- -->
+    <div class="pane" id="pane_jobs">
+      <input type="text" class="search" id="search" placeholder="Search job title...">
+      <!-- การ์ดงานสร้างโดย ui.js จากตาราง task -->
+      <div id="job_list"></div>
+      <div class="empty" id="jobs_empty" hidden>No jobs yet<br>Start from the &ldquo;New job&rdquo; tab</div>
+    </div>
+  </aside>
+
+  <!-- ============================================================
+       พื้นที่แผนที่ — ตอนนี้ว่างไว้ให้ใส่แผนที่เอง
+       ============================================================ -->
+  <div class="map-wrap">
+    <!-- TODO: เอาแผนที่ของคุณมาวางแทน div นี้ (id="map") -->
+    <div class="map-placeholder" id="map">
+      <div>
+        <div class="ph-icon">&#128506;</div>
+        <h2>Map area</h2>
+        <p>
+          This space is left empty on purpose &mdash; no map library, no satellite tiles.
+          Drop your own map here and keep the panels around it.
+          <br><br>
+          <code>&lt;div id="map"&gt;&lt;/div&gt;</code>
+        </p>
+      </div>
+    </div>
+
+    <!-- เครื่องมือมุมซ้ายบน -->
+    <div class="float f-tools">
+      <button class="tool" data-tool="draw">&#9645; Draw area</button>
+      <button class="tool" data-tool="measure">&#128207; Measure</button>
+      <button class="tool" data-tool="fit">&#9974; Zoom to result</button>
+    </div>
+
+    <!-- แถบค่าที่อ่านได้ตอนลาก/วัด -->
+    <div class="float f-readout" id="readout"></div>
+
+    <!-- แผงเลือกชั้นข้อมูลมุมขวาบน -->
+    <div class="float f-layers">
+      <h4>Base map</h4>
+      <label class="lrow"><input type="radio" name="base" checked><span>Satellite</span></label>
+      <label class="lrow"><input type="radio" name="base"><span>Satellite + labels</span></label>
+      <label class="lrow"><input type="radio" name="base"><span>Street map (OSM)</span></label>
+
+      <h4>Layers</h4>
+      <label class="lrow"><input type="checkbox" checked><span>Detected panels</span></label>
+      <label class="lrow"><input type="checkbox" checked><span>Area of interest (AOI)</span></label>
+      <label style="margin-top:8px">Panel layer opacity <b id="op_val" style="color:var(--text)">65%</b></label>
+      <input type="range" id="l_op" min="0" max="100" value="65" data-out="op_val">
+
+      <h4>Detection image</h4>
+      <label class="lrow"><input type="checkbox"><span>Show overlay image</span></label>
+      <label style="margin-top:8px">Image opacity <b id="ovl_val" style="color:var(--text)">100%</b></label>
+      <input type="range" id="l_ovl_op" min="0" max="100" value="100" data-out="ovl_val">
+    </div>
+
+    <!-- ลิ้นชักรายการที่ตรวจพบ (กดปุ่ม Zoom to result เพื่อเปิด/ปิด) -->
+    <div class="float drawer" id="drawer">
+      <div class="drawer-h">
+        <h4>Detected panels</h4>
+        <button class="icon-btn" onclick="closeDrawer()">&#10005;</button>
+      </div>
+      <div class="drawer-body">
+        <!-- TODO: ฐานข้อมูลเก็บแค่ที่อยู่ไฟล์ shapefile (task_result.shapefile_path)
+             ต้องอ่านไฟล์นั้นก่อนถึงจะแสดงรายการรูปหลายเหลี่ยมทีละอันได้ -->
+        <div class="empty" id="drawer_body">No detection results yet</div>
+      </div>
+    </div>
+
+    <!-- ตัวเลขสรุปด้านล่าง -->
+    <div class="float f-stats">
+      <div class="stat"><div class="k">Total panel area</div><div class="v"><span id="st_area">&mdash;</span><small>m&sup2;</small></div></div>
+      <div class="stat"><div class="k">Estimated panels</div><div class="v"><span id="st_panels">&mdash;</span><small>panels</small></div></div>
+      <div class="stat"><div class="k">Installed capacity</div><div class="v"><span id="st_kwp">&mdash;</span><small>kWp</small></div></div>
+      <!-- TODO: ฐานข้อมูลยังไม่มีคอลัมน์พลังงานต่อปี -->
+      <div class="stat"><div class="k">Annual generation</div><div class="v"><span id="st_mwh">&mdash;</span><small>MWh</small></div></div>
+    </div>
+  </div>
+</main>
+
+<!-- ============================================================
+     หน้าต่าง log
+     ============================================================ -->
+<div id="logbox" onclick="if(event.target===this) closeLog()">
+  <div class="log-card">
+    <div class="log-head">
+      <h4 id="log_title">Log</h4>
+      <select>
+        <option>Attempt 1</option>
+      </select>
+      <button class="icon-btn" onclick="closeLog()">&#10005;</button>
+    </div>
+    <!-- TODO: เติม log จริงลงใน <pre> นี้ -->
+    <pre class="log-body" id="log_body">No log to show.</pre>
+  </div>
+</div>
+
+<!-- ============================================================
+     หน้าเข้าสู่ระบบ / สมัครสมาชิก
+     ============================================================ -->
+<div id="gate">
+  <div class="gate-card">
+    <div class="brand"><div class="dot"></div><div>Solar Detection Console</div></div>
+    <p class="gate-sub" id="gate_sub">Sign in to view and create your detection jobs</p>
+
+    <form id="gate_form" onsubmit="submitGate(); return false">
+      <div id="gate_name_row" style="display:none">
+        <label>Name</label>
+        <input type="text" id="gate_name" autocomplete="name" maxlength="120">
+      </div>
+      <label>Email</label>
+      <input type="email" id="gate_email" autocomplete="email">
+      <label>Password</label>
+      <input type="password" id="gate_password" autocomplete="current-password">
+
+      <div class="gate-err" id="gate_err"></div>
+      <button class="btn btn-primary" id="gate_submit" type="submit">Sign in</button>
+    </form>
+
+    <div class="gate-switch">
+      <span id="gate_switch_text">No account yet?</span>
+      <button onclick="toggleGateMode()" id="gate_switch_btn">Create one</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="ui.js"></script>
+</body>
+</html>
