@@ -8,8 +8,13 @@ from parse_result import parse_result_file
 @dag(
     dag_id="solar_pipeline",
     start_date=datetime(2026, 1, 1),
-    schedule=None,
+    # Every minute: each task only picks up rows in `task` waiting for its step,
+    # so a run with nothing to do finishes in a few seconds.
+    # One run at a time, so a long inference never overlaps the next run.
+    schedule="* * * * *",
+    max_active_runs=1,
     catchup=False,
+    is_paused_upon_creation=False,
     tags=['solar', 'config_file_generator'],
 )
 def solar_pipeline():
