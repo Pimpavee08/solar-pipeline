@@ -36,6 +36,18 @@ PUBLIC_FILES = {'index.html', 'styles.css', 'ui.js'}
 # task_result.shapefile_path จึงชี้ไฟล์ได้ตรง ๆ ส่วนไฟล์นอกโฟลเดอร์นี้จะไม่ถูกส่งออกไปเด็ดขาด
 RESULTS_DIR = Path(os.getenv('RESULTS_DIR', '/opt/airflow/data')).resolve()
 
+# พลังงานที่ผลิตได้ จากเปเปอร์ของอาจารย์ (Sullivan & Witayangkurn, IEEE Access 2025, สมการ 2)
+#   kWh ต่อวัน = kWp x ชั่วโมงแดดต่อวัน x ประสิทธิภาพ   (ไทย: แดดเฉลี่ย 5 ชม./วัน, ประสิทธิภาพ 0.75)
+# kWp (task_result.power_generation) คำนวณใน dags/parse_result.py จากพื้นที่แผง x 211.73 W/m²
+SUN_HOURS_PER_DAY = 5
+EFFICIENCY = 0.75
+
+
+def annual_mwh(kwp):
+    if kwp is None:
+        return None
+    return round(float(kwp) * SUN_HOURS_PER_DAY * EFFICIENCY * 365 / 1000, 2)
+
 
 # ---------------------------------------------------------------- ฐานข้อมูล
 def db():
@@ -128,6 +140,7 @@ def load_jobs(uid, tid=None):
             'result': None if t['panel_count'] is None and t['surface_area'] is None else {
                 'surface_area': t['surface_area'],
                 'power_generation': t['power_generation'],
+                'annual_mwh': annual_mwh(t['power_generation']),
                 'panel_count': t['panel_count'],
                 'overlay_image_path': t['overlay_image_path'],
                 'shapefile_path': t['shapefile_path'],

@@ -531,8 +531,8 @@ function renderStats(result) {
   var r = result || {};
   $('st_area').textContent = fmt(r.surface_area);
   $('st_panels').textContent = fmt(r.panel_count);
-  $('st_kwp').textContent = fmt(r.power_generation, 2);
-  $('st_mwh').textContent = '—';
+  $('st_kwp').textContent = fmt(r.power_generation, 1);
+  $('st_mwh').textContent = fmt(r.annual_mwh, 1);
 }
 
 function startPolling() {

@@ -11,8 +11,10 @@ MAX_RETRIES = 5
 # Folder that task 1 writes config_<tid>.toml into
 CONFIG_DIR = '/opt/airflow/toml_config_files/'
 
-# kW per panel, used to estimate power_generation. None = not known yet (column stays NULL)
-PANEL_KW = None
+# Installed capacity, from the advisor's paper (Sullivan & Witayangkurn, IEEE Access 2025, eq. 1):
+#   watt = panel area (m2) x watt per m2; their Thai market survey gives 211.73 W/m2.
+# power_generation stores this capacity in kWp. Daily/annual energy (eq. 2) is worked out by the web.
+WATT_PER_M2 = 211.73
 
 # -----------------------------------------------------------------------------
 # The actual result work for ONE task (shared by pending and retry paths)
@@ -66,7 +68,7 @@ def read_results(tid):
         json.dump({"type": "FeatureCollection", "features": features}, file)
 
     panel_count = round(panel_total)
-    power_generation = panel_count * PANEL_KW if PANEL_KW is not None else None
+    power_generation = round(surface_area * WATT_PER_M2 / 1000, 2)  # kWp
 
     return {
         "surface_area": round(surface_area, 2),
