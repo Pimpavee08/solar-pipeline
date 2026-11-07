@@ -5,13 +5,14 @@
   หน้านี้ดึงข้อมูลจริงจากฐานข้อมูลผ่าน app.py — ต้องเปิดผ่าน  python app.py
   แล้วเข้า http://localhost:5000  (ดับเบิลคลิกไฟล์นี้ตรง ๆ จะไม่มีข้อมูล)
 
-  ส่วนที่ยังไม่ได้ต่อ (แผนที่ ระบบประมวลผลจริง) เขียนกำกับไว้ด้วย TODO
+  ส่วนที่ยังไม่ได้ต่อเขียนกำกับไว้ด้วย TODO
 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solar Detection Console</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -105,22 +106,10 @@
   </aside>
 
   <!-- ============================================================
-       พื้นที่แผนที่ — ตอนนี้ว่างไว้ให้ใส่แผนที่เอง
+       แผนที่ (Leaflet) — ui.js สร้างแผนที่ลงใน div นี้
        ============================================================ -->
   <div class="map-wrap">
-    <!-- TODO: เอาแผนที่ของคุณมาวางแทน div นี้ (id="map") -->
-    <div class="map-placeholder" id="map">
-      <div>
-        <div class="ph-icon">&#128506;</div>
-        <h2>Map area</h2>
-        <p>
-          This space is left empty on purpose &mdash; no map library, no satellite tiles.
-          Drop your own map here and keep the panels around it.
-          <br><br>
-          <code>&lt;div id="map"&gt;&lt;/div&gt;</code>
-        </p>
-      </div>
-    </div>
+    <div id="map"></div>
 
     <!-- เครื่องมือมุมซ้ายบน -->
     <div class="float f-tools">
@@ -135,20 +124,15 @@
     <!-- แผงเลือกชั้นข้อมูลมุมขวาบน -->
     <div class="float f-layers">
       <h4>Base map</h4>
-      <label class="lrow"><input type="radio" name="base" checked><span>Satellite</span></label>
-      <label class="lrow"><input type="radio" name="base"><span>Satellite + labels</span></label>
-      <label class="lrow"><input type="radio" name="base"><span>Street map (OSM)</span></label>
+      <label class="lrow"><input type="radio" name="base" value="sat" checked><span>Satellite</span></label>
+      <label class="lrow"><input type="radio" name="base" value="hybrid"><span>Satellite + labels</span></label>
+      <label class="lrow"><input type="radio" name="base" value="osm"><span>Street map (OSM)</span></label>
 
       <h4>Layers</h4>
-      <label class="lrow"><input type="checkbox" checked><span>Detected panels</span></label>
-      <label class="lrow"><input type="checkbox" checked><span>Area of interest (AOI)</span></label>
+      <label class="lrow"><input type="checkbox" id="l_panels" checked><span>Detected panels</span></label>
+      <label class="lrow"><input type="checkbox" id="l_aoi" checked><span>Area of interest (AOI)</span></label>
       <label style="margin-top:8px">Panel layer opacity <b id="op_val" style="color:var(--text)">65%</b></label>
       <input type="range" id="l_op" min="0" max="100" value="65" data-out="op_val">
-
-      <h4>Detection image</h4>
-      <label class="lrow"><input type="checkbox"><span>Show overlay image</span></label>
-      <label style="margin-top:8px">Image opacity <b id="ovl_val" style="color:var(--text)">100%</b></label>
-      <input type="range" id="l_ovl_op" min="0" max="100" value="100" data-out="ovl_val">
     </div>
 
     <!-- ลิ้นชักรายการที่ตรวจพบ (กดปุ่ม Zoom to result เพื่อเปิด/ปิด) -->
@@ -157,10 +141,9 @@
         <h4>Detected panels</h4>
         <button class="icon-btn" onclick="closeDrawer()">&#10005;</button>
       </div>
-      <div class="drawer-body">
-        <!-- TODO: ฐานข้อมูลเก็บแค่ที่อยู่ไฟล์ shapefile (task_result.shapefile_path)
-             ต้องอ่านไฟล์นั้นก่อนถึงจะแสดงรายการรูปหลายเหลี่ยมทีละอันได้ -->
-        <div class="empty" id="drawer_body">No detection results yet</div>
+      <!-- รายการรูปหลายเหลี่ยมจาก /api/jobs/<tid>/panels — คลิกเพื่อซูมไปที่แผงนั้น -->
+      <div class="drawer-body" id="drawer_body">
+        <div class="empty">No detection results yet</div>
       </div>
     </div>
 
@@ -223,6 +206,7 @@
 
 <div id="toasts"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>

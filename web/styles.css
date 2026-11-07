@@ -163,24 +163,20 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 [hidden]{display:none!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ---------- พื้นที่แผนที่ (ตอนนี้เป็นที่ว่างไว้ให้ใส่แผนที่เอง) ---------- */
+/* ---------- แผนที่ (Leaflet) ---------- */
 .map-wrap{position:relative;min-width:0}
-.map-placeholder{
-  position:absolute;inset:0;
-  background:
-    linear-gradient(rgba(42,54,68,.45) 1px, transparent 1px) 0 0/40px 40px,
-    linear-gradient(90deg, rgba(42,54,68,.45) 1px, transparent 1px) 0 0/40px 40px,
-    radial-gradient(circle at 50% 45%, #18212c, #0d1219 70%);
-  /* เว้นขอบซ้าย/ขวาให้พ้นแผงลอย ข้อความจะได้ไม่ถูกบัง */
-  display:grid;place-items:center;text-align:center;padding:24px 236px;
-}
-.map-placeholder .ph-icon{font-size:40px;opacity:.5;margin-bottom:10px}
-.map-placeholder h2{font-size:15px;font-weight:600;color:var(--muted);margin-bottom:6px}
-.map-placeholder p{font-size:12px;color:var(--muted-2);line-height:1.7;max-width:380px}
-.map-placeholder code{
-  background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
-  padding:1px 6px;font-size:11.5px;color:var(--accent);
-}
+#map{position:absolute;inset:0;background:var(--bg)}
+#map.drawing{cursor:crosshair}
+/* ปุ่มซูมอยู่ใต้แถบเครื่องมือ, ข้อความเครดิตแผนที่อยู่เหนือแถบตัวเลขด้านล่าง */
+.leaflet-top.leaflet-left{top:100px}
+.leaflet-bottom.leaflet-right{bottom:76px}
+.leaflet-bar a{background:var(--panel);color:var(--text);border-color:var(--line)}
+.leaflet-bar a:hover{background:var(--panel-2);color:var(--text)}
+.leaflet-control-attribution{background:rgba(22,29,38,.8)!important;color:var(--muted-2)!important}
+.leaflet-control-attribution a{color:var(--muted)!important}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--text)}
+.leaflet-popup-content{font-size:12px;line-height:1.6;margin:10px 14px}
+.leaflet-popup-content b{color:var(--accent)}
 
 /* ---------- แผงลอยบนแผนที่ ---------- */
 .float{
@@ -287,7 +283,6 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-top:6px}
 /* ---------- จอกลาง ---------- */
 @media(max-width:1180px){
   main{grid-template-columns:288px 1fr}
-  .map-placeholder{padding:24px 200px}
   .f-layers{width:184px;padding:10px}
   .drawer{width:228px}
   .stat{padding:9px 11px}
@@ -297,7 +292,6 @@ input[type=range]{width:100%;accent-color:var(--accent);margin-top:6px}
 @media(max-width:760px){
   main{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   aside{border-right:none;border-bottom:1px solid var(--line);max-height:46vh}
-  .map-placeholder{padding:24px}
   .f-stats{grid-template-columns:repeat(2,1fr)}
   .f-layers,.drawer{display:none!important}
   .brand small{display:none}

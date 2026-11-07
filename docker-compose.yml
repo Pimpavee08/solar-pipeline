@@ -122,6 +122,9 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_NAME: ${MYSQL_DATABASE}
       SECRET_KEY: ${WEB_SECRET_KEY:?set WEB_SECRET_KEY in .env}
+    # Results from parse_result (GeoJSON), read-only, at the same path the Airflow containers use
+    volumes:
+      - ./data:/opt/airflow/data:ro
     ports:
       - "127.0.0.1:5050:5000"
     depends_on:

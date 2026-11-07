@@ -32,6 +32,10 @@ STEPS = ['generating_config', 'fetch_image', 'run_inference', 'parse_result']
 # ไฟล์หน้าเว็บที่อนุญาตให้เปิดได้ (ห้ามเสิร์ฟทั้งโฟลเดอร์ เพราะมี .env อยู่ด้วย)
 PUBLIC_FILES = {'index.html', 'styles.css', 'ui.js'}
 
+# โฟลเดอร์ผลลัพธ์ของ Airflow (data/ ของ repo) — ในคอนเทนเนอร์เว็บ mount ไว้ที่ path เดียวกับฝั่ง Airflow
+# task_result.shapefile_path จึงชี้ไฟล์ได้ตรง ๆ ส่วนไฟล์นอกโฟลเดอร์นี้จะไม่ถูกส่งออกไปเด็ดขาด
+RESULTS_DIR = Path(os.getenv('RESULTS_DIR', '/opt/airflow/data')).resolve()
+
 
 # ---------------------------------------------------------------- ฐานข้อมูล
 def db():
@@ -226,6 +230,23 @@ def get_job(tid):
     if not jobs:
         return jsonify(error='Job not found'), 404
     return jsonify(job=jobs[0])
+
+
+@app.get('/api/jobs/<tid>/panels')
+@login_required
+def job_panels(tid):
+    """รูปหลายเหลี่ยมแผงโซลาร์ที่ตรวจพบ (GeoJSON, lat/lng) ที่ parse_result เขียนไว้ข้างไฟล์ shapefile"""
+    row = query("""
+        SELECT r.shapefile_path FROM task t JOIN task_result r ON r.tid = t.tid
+        WHERE t.tid = %s AND t.uid = %s
+    """, [tid, session['uid']], one=True)
+    if not row or not row['shapefile_path']:
+        return jsonify(error='No detection result for this job yet'), 404
+
+    geojson = Path(row['shapefile_path']).with_suffix('.geojson').resolve()
+    if RESULTS_DIR not in geojson.parents or not geojson.is_file():
+        return jsonify(error='Result file not found'), 404
+    return send_from_directory(geojson.parent, geojson.name, mimetype='application/geo+json')
 
 
 @app.post('/api/jobs')

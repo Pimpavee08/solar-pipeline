@@ -111,7 +111,7 @@ function setAoi(bbox) {
   $('aoi_ne').textContent = bbox[2] + ', ' + bbox[3];
   $('aoi_size').innerHTML = areaKm2(bbox).toFixed(3) + ' km&sup2;';
   updateTiles();
-  // TODO: เลื่อนแผนที่ไปยังพื้นที่นี้ เมื่อใส่แผนที่แล้ว
+  showAoi(bbox, true);
 }
 
 function updateTiles() {
@@ -133,29 +133,196 @@ document.querySelectorAll('.chip').forEach(function (chip) {
   };
 });
 
-/* ---------------------------------------------------- เครื่องมือบนแผนที่ */
-document.querySelectorAll('.tool').forEach(function (tool) {
-  tool.onclick = function () {
-    var isOn = tool.classList.contains('on');
-    document.querySelectorAll('.tool').forEach(function (t) { t.classList.remove('on'); });
+/* ---------------------------------------------------- แผนที่ (Leaflet) */
+var PANEL_COLOR = '#facc15';
+var MEASURE_COLOR = '#38bdf8';
+var hasMap = !!window.L;     // โหลด Leaflet จาก CDN ไม่ได้ → หน้าเว็บยังใช้ได้ แค่ไม่มีแผนที่
+var DOTS_BELOW_ZOOM = 18;   // ซูมต่ำกว่านี้แสดงแผงเป็นจุด
+var map, baseLayer, aoiLayer, panelsLayer, dotsLayer;
+var panelsTid = null;        // งานที่โหลดรูปแผงมาแสดงอยู่
+var shownTid = null;         // งานที่แผนที่ซูมไปหาแล้ว (ซูมครั้งเดียวตอนเลือกงาน ไม่ซูมทุกครั้งที่ poll)
 
-    if (tool.dataset.tool === 'fit') {
-      $('drawer').classList.toggle('on');
-      return;
-    }
+function bboxBounds(b) { return L.latLngBounds([b[0], b[1]], [b[2], b[3]]); }
+function boundsToBbox(b) {
+  var r = function (v) { return Math.round(v * 1e6) / 1e6; };
+  return [r(b.getSouth()), r(b.getWest()), r(b.getNorth()), r(b.getEast())];
+}
 
-    if (isOn) {                       // กดซ้ำ = ปิดโหมด
-      $('readout').classList.remove('on');
-      return;
-    }
-    tool.classList.add('on');
+if (hasMap) {
+  map = L.map('map', { maxZoom: 21 }).setView([13.75, 100.55], 6);
 
-    // TODO: ต่อกับเครื่องมือวาด/วัดระยะของแผนที่ที่คุณเลือกใช้
-    if (tool.dataset.tool === 'draw') {
-      showReadout('Drag a box on the map <b>(not wired up yet)</b>');
-    } else {
-      showReadout('Click the map to start measuring <b>(not wired up yet)</b>');
-    }
+  // "Satellite" ใช้ภาพชุดเดียวกับที่ fetch_image ดึงไปให้โมเดล จะได้เทียบตำแหน่งกรอบที่ตรวจพบได้ตรง
+  var google = function (lyrs) {
+    return L.tileLayer('https://mt{s}.google.com/vt/lyrs=' + lyrs + '&x={x}&y={y}&z={z}', {
+      subdomains: '0123', maxZoom: 21, attribution: 'Imagery &copy; Google'
+    });
+  };
+  var baseLayers = {
+    sat: google('s'),
+    hybrid: google('y'),
+    osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxNativeZoom: 19, maxZoom: 21, attribution: '&copy; OpenStreetMap contributors'
+    })
+  };
+  baseLayer = baseLayers.sat.addTo(map);
+  document.querySelectorAll('input[name=base]').forEach(function (radio) {
+    radio.onchange = function () {
+      map.removeLayer(baseLayer);
+      baseLayer = baseLayers[radio.value].addTo(map);
+    };
+  });
+
+  aoiLayer = L.rectangle([[0, 0], [0, 0]], {
+    color: PANEL_COLOR, weight: 2, dashArray: '6 5', fill: false, interactive: false
+  });
+  panelsLayer = L.geoJSON(null, {
+    style: panelStyle,
+    onEachFeature: function (feature, layer) { layer.bindPopup(panelPopup(feature.properties)); }
+  });
+  // แผงหลังหนึ่งเล็กมากเมื่อมองทั้งพื้นที่ → ตอนซูมออกแสดงเป็นจุดแทน ซูมเข้ามาถึงจะเห็นรูปจริง
+  dotsLayer = L.layerGroup();
+  map.on('zoomend', syncPanelLayers);
+  syncPanelLayers();
+}
+
+function syncPanelLayers() {
+  if (!hasMap) return;
+  var on = $('l_panels').checked;
+  var dots = map.getZoom() < DOTS_BELOW_ZOOM;
+  if (on && !dots) panelsLayer.addTo(map); else map.removeLayer(panelsLayer);
+  if (on && dots) dotsLayer.addTo(map); else map.removeLayer(dotsLayer);
+}
+
+function buildDots() {
+  dotsLayer.clearLayers();
+  panelsLayer.eachLayer(function (layer) {
+    L.circleMarker(layer.getBounds().getCenter(), {
+      radius: 5, color: '#1a1400', weight: 1, fillColor: PANEL_COLOR, fillOpacity: 0.9
+    }).on('click', function () { focusPanel(layer); }).addTo(dotsLayer);
+  });
+}
+
+function focusPanel(layer) {
+  map.fitBounds(layer.getBounds(), { padding: [80, 80], maxZoom: 20 });
+  layer.openPopup();
+}
+
+function showAoi(bbox, fit) {
+  if (!hasMap) return;
+  aoiLayer.setBounds(bboxBounds(bbox));
+  if ($('l_aoi').checked && !map.hasLayer(aoiLayer)) aoiLayer.addTo(map);
+  if (fit) map.fitBounds(bboxBounds(bbox), { padding: [60, 60], maxZoom: 19 });
+}
+
+/* ---------- ชั้นข้อมูลแผงที่ตรวจพบ ---------- */
+function panelStyle() {
+  var op = Number($('l_op').value) / 100;
+  return { color: PANEL_COLOR, weight: 1.5, opacity: op, fillColor: PANEL_COLOR, fillOpacity: op * 0.5 };
+}
+
+// คอลัมน์ใน shapefile ของอาจารย์: no_panel = จำนวนแผงโดยประมาณ, adjusted_a = พื้นที่ (m²) หลังปรับค่า
+function panelPopup(p) {
+  return '<b>' + fmt(p.no_panel, 1) + ' panels</b><br>' +
+    'Area: ' + fmt(p.adjusted_a, 1) + ' m&sup2;<br>' +
+    'Size class: ' + esc(p.size);
+}
+
+function loadPanels(job) {
+  if (!hasMap || panelsTid === job.tid) return;
+  panelsTid = job.tid;
+  api('GET', '/api/jobs/' + job.tid + '/panels')
+    .then(function (geojson) {
+      if (panelsTid !== job.tid) return;          // เลือกงานอื่นไปแล้วระหว่างรอ
+      panelsLayer.clearLayers();
+      panelsLayer.addData(geojson);
+      buildDots();
+      renderDrawer();
+    })
+    .catch(function (err) {
+      if (panelsTid !== job.tid) return;
+      renderDrawer(err.status === 404 ? err.message : 'Could not load the result');
+      if (err.status !== 404) handleError(err);
+    });
+}
+
+function clearPanels() {
+  if (!hasMap) return;
+  panelsTid = null;
+  panelsLayer.clearLayers();
+  dotsLayer.clearLayers();
+  renderDrawer();
+}
+
+$('l_panels').onchange = syncPanelLayers;
+$('l_aoi').onchange = function () {
+  if (!hasMap) return;
+  if (this.checked && aoi) aoiLayer.addTo(map); else map.removeLayer(aoiLayer);
+};
+
+/* ---------- ลิ้นชักรายการแผงที่ตรวจพบ ---------- */
+function renderDrawer(message) {
+  var layers = hasMap ? panelsLayer.getLayers() : [];
+  if (!layers.length) {
+    $('drawer_body').innerHTML = '<div class="empty">' + esc(message || 'No detection results yet') + '</div>';
+    return;
+  }
+  layers.sort(function (a, b) { return (b.feature.properties.no_panel || 0) - (a.feature.properties.no_panel || 0); });
+  $('drawer_body').innerHTML = layers.map(function (layer, i) {
+    var p = layer.feature.properties;
+    return '<div class="det" data-id="' + L.stamp(layer) + '">' +
+      '<div class="det-top"><span>#' + (i + 1) + '</span><b>' + fmt(p.no_panel, 1) + ' panels</b></div>' +
+      '<div class="det-sub"><span>' + fmt(p.adjusted_a, 1) + ' m&sup2;</span><span>size ' + esc(p.size) + '</span></div>' +
+    '</div>';
+  }).join('');
+}
+
+$('drawer_body').onclick = function (event) {
+  var row = event.target.closest('.det');
+  if (!row) return;
+  document.querySelectorAll('.det').forEach(function (d) { d.classList.toggle('on', d === row); });
+  focusPanel(panelsLayer.getLayer(Number(row.dataset.id)));
+};
+
+function closeDrawer() { $('drawer').classList.remove('on'); }
+
+function zoomToResult() {
+  if (!hasMap) return;
+  if (panelsLayer.getLayers().length) {
+    map.fitBounds(panelsLayer.getBounds(), { padding: [60, 60], maxZoom: 20 });
+    $('drawer').classList.add('on');
+    return;
+  }
+  var job = currentTid && findJob(currentTid);
+  if (job) map.fitBounds(bboxBounds(job.bbox), { padding: [60, 60] });
+  toast(job ? 'This job has no detection result yet' : 'Select a finished job first', 'err');
+}
+
+/* ---------- เครื่องมือ: วาดพื้นที่ / วัดระยะ ---------- */
+var activeTool = null;        // 'draw' | 'measure' | null
+var drawStart = null, drawRect = null;
+var measurePts = [], measureLine = null;
+
+function setTool(name) {
+  if (!hasMap) { toast('The map could not be loaded', 'err'); return; }
+  activeTool = name;
+  document.querySelectorAll('.tool').forEach(function (t) { t.classList.toggle('on', t.dataset.tool === name); });
+  $('map').classList.toggle('drawing', !!name);
+
+  // ตอนวาดกรอบ ต้องปิดการลากแผนที่ ไม่งั้นลากเมาส์แล้วแผนที่จะเลื่อนแทน
+  if (name === 'draw') map.dragging.disable(); else map.dragging.enable();
+
+  if (measureLine) { map.removeLayer(measureLine); measureLine = null; }
+  measurePts = [];
+
+  if (name === 'draw') showReadout('Drag a box over the area to scan');
+  else if (name === 'measure') showReadout('Click points on the map to measure &mdash; Esc to stop');
+  else $('readout').classList.remove('on');
+}
+
+document.querySelectorAll('.tool').forEach(function (btn) {
+  btn.onclick = function () {
+    if (btn.dataset.tool === 'fit') { zoomToResult(); return; }
+    setTool(activeTool === btn.dataset.tool ? null : btn.dataset.tool);
   };
 });
 
@@ -164,16 +331,66 @@ function showReadout(html) {
   $('readout').classList.add('on');
 }
 
+function pathLength(points) {
+  var total = 0;
+  for (var i = 1; i < points.length; i++) total += map.distance(points[i - 1], points[i]);
+  return total;
+}
+function fmtDistance(m) { return m < 1000 ? m.toFixed(1) + ' m' : (m / 1000).toFixed(2) + ' km'; }
+
+if (hasMap) {
+  map.on('mousedown', function (e) {
+    if (activeTool !== 'draw') return;
+    drawStart = e.latlng;
+    drawRect = L.rectangle(L.latLngBounds(e.latlng, e.latlng), {
+      color: PANEL_COLOR, weight: 2, dashArray: '6 5', fillOpacity: 0.08, interactive: false
+    }).addTo(map);
+  });
+
+  map.on('mousemove', function (e) {
+    if (activeTool === 'draw' && drawStart) {
+      var bounds = L.latLngBounds(drawStart, e.latlng);
+      drawRect.setBounds(bounds);
+      var box = boundsToBbox(bounds);
+      showReadout('Area <b>' + areaKm2(box).toFixed(3) + ' km&sup2;</b> &middot; ' +
+        '<b>' + tileCount(box, Number($('zoom').value)) + '</b> / ' + MAX_TILES + ' tiles');
+    } else if (activeTool === 'measure' && measurePts.length) {
+      showReadout('Distance <b>' + fmtDistance(pathLength(measurePts.concat([e.latlng]))) + '</b> &mdash; Esc to stop');
+    }
+  });
+
+  map.on('mouseup', function (e) {
+    if (activeTool !== 'draw' || !drawStart) return;
+    var bounds = L.latLngBounds(drawStart, e.latlng);
+    map.removeLayer(drawRect);
+    drawStart = drawRect = null;
+    var box = boundsToBbox(bounds);
+    if (box[0] === box[2] || box[1] === box[3]) { showReadout('Drag a box, not a single click'); return; }
+
+    document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('on'); });
+    $('title').placeholder = 'e.g. My rooftop survey';
+    setTool(null);
+    setAoi(box);
+    switchTab('new');
+    toast('Area selected');
+  });
+
+  map.on('click', function (e) {
+    if (activeTool !== 'measure') return;
+    measurePts.push(e.latlng);
+    if (!measureLine) measureLine = L.polyline([], { color: MEASURE_COLOR, weight: 3, dashArray: '5 5', interactive: false }).addTo(map);
+    measureLine.setLatLngs(measurePts);
+    showReadout('Distance <b>' + fmtDistance(pathLength(measurePts)) + '</b> &mdash; Esc to stop');
+  });
+}
+
 /* ---------------------------------------------------- แถบเลื่อนความทึบ */
 document.querySelectorAll('input[type=range][data-out]').forEach(function (slider) {
   slider.oninput = function () {
     $(slider.dataset.out).textContent = slider.value + '%';
-    // TODO: ส่งค่านี้ไปปรับความทึบของชั้นข้อมูลบนแผนที่
+    if (hasMap && slider.id === 'l_op') panelsLayer.setStyle(panelStyle());
   };
 });
-
-/* ---------------------------------------------------- ลิ้นชักผลลัพธ์ */
-function closeDrawer() { $('drawer').classList.remove('on'); }
 
 /* ---------------------------------------------------- รายการงาน */
 function loadJobs() {
@@ -254,10 +471,12 @@ function selectJob(tid) {
 
 function clearJob() {
   currentTid = null;
+  shownTid = null;
   stopPolling();
   $('pill_job').textContent = 'No job selected';
   renderStepper(null);
   renderStats(null);
+  clearPanels();
 }
 
 function showJob(job) {
@@ -266,7 +485,14 @@ function showJob(job) {
   renderStats(job.result);
   // งานที่ยังไม่จบ → ถามสถานะใหม่เรื่อย ๆ
   if (job.state === 'pending' || job.state === 'running') startPolling(); else stopPolling();
-  // TODO: ซูมแผนที่ไปที่ job.bbox และแสดง overlay / shapefile ของงานนี้
+
+  // แผนที่: ซูมไปที่พื้นที่ของงานครั้งเดียวตอนเลือก แล้วแสดงแผงที่ตรวจพบเมื่องานเสร็จ
+  if (shownTid !== job.tid) {
+    shownTid = job.tid;
+    showAoi(job.bbox, true);
+  }
+  if (job.state === 'completed' && job.result) loadPanels(job);
+  else if (panelsTid !== null) clearPanels();   // เปลี่ยนงาน หรือสั่งรันใหม่ → ล้างผลเก่าออก
 }
 
 function renderStepper(job) {
@@ -441,8 +667,7 @@ function signOut() {
 document.addEventListener('keydown', function (event) {
   if (event.key !== 'Escape') return;
   closeLog();
-  $('readout').classList.remove('on');
-  document.querySelectorAll('.tool').forEach(function (t) { t.classList.remove('on'); });
+  if (activeTool) setTool(null);
 });
 
 /* ---------------------------------------------------- เริ่มต้น */

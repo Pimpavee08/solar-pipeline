@@ -20,6 +20,11 @@ Flask (Solar Detection Console) รันเป็นคอนเทนเนอ
 เปิดที่ **http://localhost:5050** บนเครื่องอาจารย์ (พอร์ต 5000 เป็นของ mlflow ของอาจารย์)
 ผูกไว้กับ `127.0.0.1` เปิดจากเครื่องอื่นต้องผ่าน SSH tunnel หรือ Tailscale
 
+แผนที่ใช้ Leaflet (โหลดจาก cdnjs) กับภาพดาวเทียม Google ชุดเดียวกับที่ `fetch_image` ดึงไปให้โมเดล
+- **Draw area** ลากกรอบเลือกพื้นที่, **Measure** วัดระยะ, **Zoom to result** ซูมไปที่ผลและเปิดรายการแผง
+- งานที่เสร็จแล้วแสดงรูปแผงจาก GeoJSON ที่ `parse_result` เขียนไว้ (`GET /api/jobs/<tid>/panels`)
+  คอนเทนเนอร์เว็บอ่าน `data/` แบบ read-only และส่งเฉพาะไฟล์ในโฟลเดอร์นั้น
+
 แก้หน้าเว็บที่ `web/` แล้วอัปเดตด้วย `docker compose up -d --build web`
 
 ## ติดตั้งบนเครื่องอาจารย์
