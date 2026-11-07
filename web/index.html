@@ -73,15 +73,12 @@
           <label>Job title &mdash; titles may repeat; the system identifies jobs by tid</label>
           <input type="text" id="title" placeholder="e.g. SIIT Rangsit rooftop survey" maxlength="200">
         </div>
-        <div>
-          <label>Zoom level &mdash; higher is more detailed but takes longer</label>
-          <select id="zoom">
-            <option value="17">17 &mdash; Coarse (~1.2 m/pixel)</option>
-            <option value="18" selected>18 &mdash; Standard (~0.6 m/pixel)</option>
-            <option value="19">19 &mdash; Detailed (~0.3 m/pixel)</option>
-            <option value="20">20 &mdash; Very detailed (~0.15 m/pixel)</option>
-          </select>
-        </div>
+        <!-- zoom ไม่ให้เลือก: โมเดลต้องการภาพ ~10 ซม./พิกเซล fetch_image จึงดึงที่ zoom 20 เสมอ
+             (zoom ต่ำกว่านี้ภาพจะถูกขยายจนเบลอ ผลตรวจจับแย่ลง) -->
+        <p class="hint" style="margin:0">
+          Imagery: zoom 20 (~0.15 m/pixel), the detail the AI model needs.
+          Up to <b id="max_tiles"></b> tiles per job &mdash; about 0.5 km&sup2;.
+        </p>
       </div>
 
       <div class="step" id="s3">

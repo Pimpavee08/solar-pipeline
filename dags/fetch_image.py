@@ -103,7 +103,7 @@ def create_geotiff(tid, title, min_lat, min_lng, max_lat, max_lng):
     # Ensure that the image is not too large
     if n_tiles > MAX_TILES:
         raise ValueError(
-            f"Requested area is too large ({n_tiles} tiles, limit {MAX_TILES})."
+            f"Requested area is too large ({n_tiles} tiles, limit {MAX_TILES}). "
             f"Please select a smaller region."
         )
 

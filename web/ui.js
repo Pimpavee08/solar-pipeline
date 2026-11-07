@@ -20,7 +20,9 @@ var STATE_BADGE = {
   failed: ['b-fail', 'Failed'],
   pending: ['b-wait', 'Queued']
 };
-var MAX_TILES = 100;
+// ต้องตรงกับ ZOOM และ MAX_TILES ใน dags/fetch_image.py — เว็บเช็กก่อน งานจะได้ไม่ไปล้มที่ขั้นดึงภาพ
+var FETCH_ZOOM = 20;
+var MAX_TILES = 400;
 var POLL_MS = 5000;
 
 var jobs = [];            // รายการงานล่าสุดจาก /api/jobs
@@ -116,11 +118,11 @@ function setAoi(bbox) {
 
 function updateTiles() {
   if (!aoi) return;
-  var n = tileCount(aoi, Number($('zoom').value));
+  var n = tileCount(aoi, FETCH_ZOOM);
   $('aoi_tiles').textContent = n + ' / ' + MAX_TILES;
   $('aoi_tiles').style.color = n > MAX_TILES ? 'var(--err)' : '';
 }
-$('zoom').onchange = updateTiles;
+$('max_tiles').textContent = MAX_TILES;
 
 function chipBbox(chip) { return chip.dataset.bbox.split(',').map(Number); }
 
@@ -353,7 +355,7 @@ if (hasMap) {
       drawRect.setBounds(bounds);
       var box = boundsToBbox(bounds);
       showReadout('Area <b>' + areaKm2(box).toFixed(3) + ' km&sup2;</b> &middot; ' +
-        '<b>' + tileCount(box, Number($('zoom').value)) + '</b> / ' + MAX_TILES + ' tiles');
+        '<b>' + tileCount(box, FETCH_ZOOM) + '</b> / ' + MAX_TILES + ' tiles');
     } else if (activeTool === 'measure' && measurePts.length) {
       showReadout('Distance <b>' + fmtDistance(pathLength(measurePts.concat([e.latlng]))) + '</b> &mdash; Esc to stop');
     }
@@ -556,15 +558,14 @@ function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
 /* ---------------------------------------------------- สร้าง / สั่งซ้ำ / ลบงาน */
 $('btn_run').onclick = function () {
   if (!aoi) { toast('Pick an area first', 'err'); return; }
-  if (tileCount(aoi, Number($('zoom').value)) > MAX_TILES) {
-    toast('Area too large for this zoom level - pick a smaller area or lower zoom', 'err');
+  if (tileCount(aoi, FETCH_ZOOM) > MAX_TILES) {
+    toast('Area too large (' + tileCount(aoi, FETCH_ZOOM) + ' tiles, limit ' + MAX_TILES + ') - pick a smaller area', 'err');
     return;
   }
   var title = $('title').value.trim() || $('title').placeholder;
   var btn = $('btn_run');
   btn.disabled = true;
 
-  // TODO: ตาราง task ยังไม่มีคอลัมน์ zoom — ถ้าระบบประมวลผลต้องใช้ ให้เพิ่มคอลัมน์แล้วส่ง $('zoom').value ไปด้วย
   api('POST', '/api/jobs', { title: title, bbox: aoi })
     .then(function (data) {
       jobs.unshift(data.job);
