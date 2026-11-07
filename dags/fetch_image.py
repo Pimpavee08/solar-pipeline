@@ -22,8 +22,13 @@ CONFIG_DIR = '/opt/airflow/toml_config_files/'
 
 # Resolution (meters per pixel on the ground) that the model was trained on (10 cm/pixel)
 TARGET_RES_M = 0.10
-# Size of one pixel in EPSG:3857 meters at this zoom level (at the equator)
-ZOOM_PIXEL_M = 40075016. / (TILE_SIZE * 2 ** ZOOM)
+
+# The advisor's program treats every input image as UTM zone 47N and labels its shapefiles
+# EPSG:32647, whatever CRS the GeoTIFF really has. So the image MUST be written in EPSG:32647,
+# otherwise the panel polygons land in the wrong place and their areas are off.
+# (UTM metres are real ground metres, so 0.1 m/pixel here is the true 10 cm the model expects.)
+SOURCE_CRS = "EPSG:3857"   # Google tiles (Web Mercator)
+TARGET_CRS = "EPSG:32647"  # WGS 84 / UTM zone 47N
 
 # -----------------------------------------------------------------------------
 # Coordinate helpers (Slippy Map / Web Mercator)
@@ -76,6 +81,7 @@ def create_geotiff(tid, title, min_lat, min_lng, max_lat, max_lng):
     import rasterio
     from PIL import Image
     from rasterio.transform import from_bounds
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
 
     # Verify the coordinates
     if min_lat >= max_lat or min_lng >= max_lng:
@@ -125,43 +131,44 @@ def create_geotiff(tid, title, min_lat, min_lng, max_lat, max_lng):
     left_m, top_m = lnglat_to_webmercator(lng_left, lat_top)
     right_m, bottom_m = lnglat_to_webmercator(lng_right, lat_bottom)
 
-    # Resample the mosaic to match the model's training resolution (~10 cm/pixel)
-    # EPSG:3857 stretches distance by 1/cos(lat), so the real ground resolution
-    # of a Google tile is ZOOM_PIXEL_M * cos(lat), not ZOOM_PIXEL_M itself
-    mid_lat = (lat_top + lat_bottom) / 2
-    ground_res_m = ZOOM_PIXEL_M * math.cos(math.radians(mid_lat))
-    scale = ground_res_m / TARGET_RES_M # >1 means upscale
-
-    new_size = (round(mosaic.width * scale), round(mosaic.height * scale))
-
-    # Resize only once, with LANCZOS (sharp edges for panel borders)
-    mosaic = mosaic.resize(new_size, Image.Resampling.LANCZOS)
-
-    # D: Write the mosaic to a GeoTIFF
-    input_folder_path.mkdir(parents=True, exist_ok=True)
-
     # Rasterio expects (bands, height, width), not (height, width, bands)
     mosaic_array = np.array(mosaic).transpose(2, 0, 1)
+    src_transform = from_bounds(left_m, bottom_m, right_m, top_m, mosaic.width, mosaic.height)
 
-    transform = from_bounds(
+    # D: Reproject to UTM 47N at the model's 10 cm/pixel in one resampling step
+    # (Lanczos keeps the panel borders sharp). Pixels outside the tiles stay black.
+    dst_transform, dst_width, dst_height = calculate_default_transform(
+        SOURCE_CRS, TARGET_CRS, mosaic.width, mosaic.height,
         left_m, bottom_m, right_m, top_m,
-        mosaic.width, mosaic.height
+        resolution=TARGET_RES_M,
+    )
+    utm_array = np.zeros((3, dst_height, dst_width), dtype=mosaic_array.dtype)
+    reproject(
+        source=mosaic_array,
+        destination=utm_array,
+        src_transform=src_transform,
+        src_crs=SOURCE_CRS,
+        dst_transform=dst_transform,
+        dst_crs=TARGET_CRS,
+        resampling=Resampling.lanczos,
     )
 
+    # E: Write the GeoTIFF
+    input_folder_path.mkdir(parents=True, exist_ok=True)
     image_path = input_folder_path / f"{title}.tif"
 
     with rasterio.open(
         image_path,
         "w",
         driver="GTiff",
-        height=mosaic.height,
-        width=mosaic.width,
+        height=dst_height,
+        width=dst_width,
         count=3, # RGB
-        dtype=mosaic_array.dtype,
-        crs="EPSG:3857", # Web Mercator
-        transform=transform   
+        dtype=utm_array.dtype,
+        crs=TARGET_CRS,
+        transform=dst_transform,
     ) as dst:
-        dst.write(mosaic_array)
+        dst.write(utm_array)
 
     return image_path
 

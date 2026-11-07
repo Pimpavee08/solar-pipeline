@@ -370,7 +370,7 @@ if (hasMap) {
     if (box[0] === box[2] || box[1] === box[3]) { showReadout('Drag a box, not a single click'); return; }
 
     document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('on'); });
-    $('title').placeholder = 'e.g. My rooftop survey';
+    $('title').placeholder = 'Custom area rooftop survey';
     setTool(null);
     setAoi(box);
     switchTab('new');
@@ -562,7 +562,8 @@ $('btn_run').onclick = function () {
     toast('Area too large (' + tileCount(aoi, FETCH_ZOOM) + ' tiles, limit ' + MAX_TILES + ') - pick a smaller area', 'err');
     return;
   }
-  var title = $('title').value.trim() || $('title').placeholder;
+  // ช่องชื่อว่าง → ใช้ข้อความตัวอย่างในช่องเป็นชื่องาน (ตัด "e.g. " ข้างหน้าออก)
+  var title = $('title').value.trim() || $('title').placeholder.replace(/^e\.g\.\s*/, '');
   var btn = $('btn_run');
   btn.disabled = true;
 
