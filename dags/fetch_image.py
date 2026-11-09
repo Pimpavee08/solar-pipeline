@@ -155,7 +155,8 @@ def create_geotiff(tid, title, min_lat, min_lng, max_lat, max_lng):
 
     # E: Write the GeoTIFF
     input_folder_path.mkdir(parents=True, exist_ok=True)
-    image_path = input_folder_path / f"{title}.tif"
+    # Named by tid, not title: a title with / would point into folders that do not exist
+    image_path = input_folder_path / f"{tid}.tif"
 
     with rasterio.open(
         image_path,

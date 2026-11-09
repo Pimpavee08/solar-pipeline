@@ -81,7 +81,7 @@ def generating_config_file():
                         f"inference_path = '/opt/airflow/data/inference/{tid}/'"
                     ).replace(
                         "job_name = 'job_google_full'",
-                        f"job_name = '{title}'"
+                        f"job_name = '{tid}'"  # tid, not title: a title with ' would break the TOML
                     )
 
                     # Save generated config file
@@ -192,7 +192,7 @@ def generating_config_file():
                         f"inference_path = '/opt/airflow/data/inference/{tid}/'"
                     ).replace(
                         "job_name = 'job_google_full'",
-                        f"job_name = '{title}'"
+                        f"job_name = '{tid}'"  # tid, not title: a title with ' would break the TOML
                     )
 
                     # Save generated config file
