@@ -36,6 +36,9 @@ PUBLIC_FILES = {'index.html', 'styles.css', 'ui.js'}
 # task_result.shapefile_path จึงชี้ไฟล์ได้ตรง ๆ ส่วนไฟล์นอกโฟลเดอร์นี้จะไม่ถูกส่งออกไปเด็ดขาด
 RESULTS_DIR = Path(os.getenv('RESULTS_DIR', '/opt/airflow/data')).resolve()
 
+# จำนวนครั้งที่ pipeline ลองขั้นที่ล้มใหม่ — ต้องตรงกับ MAX_RETRIES ใน dags/*.py
+MAX_RETRIES = 5
+
 # พลังงานที่ผลิตได้ จากเปเปอร์ของอาจารย์ (Sullivan & Witayangkurn, IEEE Access 2025, สมการ 2)
 #   kWh ต่อวัน = kWp x ชั่วโมงแดดต่อวัน x ประสิทธิภาพ   (ไทย: แดดเฉลี่ย 5 ชม./วัน, ประสิทธิภาพ 0.75)
 # kWp (task_result.power_generation) คำนวณใน dags/parse_result.py จากพื้นที่แผง x 211.73 W/m²
@@ -75,12 +78,19 @@ def iso(value):
 
 # ---------------------------------------------------------------- สถานะงาน
 def job_state(steps):
-    """สรุปสถานะงานจากสถานะของแต่ละขั้น: completed / failed / running / pending"""
+    """สรุปสถานะงานจากสถานะของแต่ละขั้น: completed / failed / retrying / running / pending
+
+    ขั้นที่ failed แต่ยัง retry ไม่ครบ MAX_RETRIES ครั้ง → retrying (pipeline จะลองให้ใหม่เอง)
+    ล้มจริง (failed) ก็ต่อเมื่อ retry ครบแล้ว
+    """
     states = [s['status'] for s in steps]
     if not states:
         return 'pending'
-    if 'failed' in states:
+    failed = [s for s in steps if s['status'] == 'failed']
+    if any(s['retry_count'] >= MAX_RETRIES for s in failed):
         return 'failed'
+    if failed:
+        return 'retrying'
     if all(s == 'completed' for s in states):
         return 'completed'
     if any(s in ('running', 'completed') for s in states):
@@ -96,6 +106,7 @@ def step_json(row):
         'name': row['step_name'],
         'status': row['status'],
         'retry_count': row['retry_count'],
+        'max_retries': MAX_RETRIES,
         'error_msg': row['error_msg'],
         'seconds': seconds,
     }

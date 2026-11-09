@@ -17,6 +17,7 @@ var STEP_LABELS = {
 var STATE_BADGE = {
   completed: ['b-done', 'Completed'],
   running: ['b-run', 'Running'],
+  retrying: ['b-retry', 'Retrying'],
   failed: ['b-fail', 'Failed'],
   pending: ['b-wait', 'Queued']
 };
@@ -486,7 +487,8 @@ function showJob(job) {
   renderStepper(job);
   renderStats(job.result);
   // งานที่ยังไม่จบ → ถามสถานะใหม่เรื่อย ๆ
-  if (job.state === 'pending' || job.state === 'running') startPolling(); else stopPolling();
+  // retrying ก็ยังไม่จบ: pipeline จะลองขั้นที่ล้มใหม่เอง
+  if (job.state === 'pending' || job.state === 'running' || job.state === 'retrying') startPolling(); else stopPolling();
 
   // แผนที่: ซูมไปที่พื้นที่ของงานครั้งเดียวตอนเลือก แล้วแสดงแผงที่ตรวจพบเมื่องานเสร็จ
   if (shownTid !== job.tid) {
@@ -509,8 +511,8 @@ function renderStepper(job) {
   $('stepper').innerHTML = job.steps.map(function (step, i) {
     var cls = { completed: 'done', running: 'active', failed: 'failed' }[step.status] || '';
     var mark = step.status === 'completed' ? '&#10003;' : step.status === 'failed' ? '!' : '';
-    var retry = step.retry_count > 0
-      ? ' <span style="color:var(--warn)">(retry ' + step.retry_count + ')</span>' : '';
+    var retry = step.retry_count > 0 || step.status === 'failed'
+      ? ' <span style="color:var(--warn)">(retry ' + step.retry_count + '/' + step.max_retries + ')</span>' : '';
     var time = step.seconds != null ? '<span class="step-time">' + step.seconds.toFixed(1) + ' s</span>' : '';
     var log = step.error_msg
       ? '<a class="log-link" href="#" data-step="' + i + '">log</a>' : '';
