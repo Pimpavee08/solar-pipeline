@@ -199,6 +199,7 @@ def process_task(connection, cursor, task):
             """,
             (tid,),
         )
+        connection.commit()  # so the web shows this step as running while it works
 
         image_path = create_geotiff(
             tid,

@@ -74,6 +74,7 @@ def generating_config_file():
                         WHERE tid = %s;
                     """
                     cursor.execute(update_running_task, (tid,))
+                    connection.commit()  # so the web shows this step as running while it works
 
                     # Generating config file according to the template
                     customized_config = template_content.replace(
@@ -185,6 +186,7 @@ def generating_config_file():
                         WHERE tid = %s;
                     """
                     cursor.execute(update_running_task, (tid,))
+                    connection.commit()  # so the web shows this step as running while it works
 
                     # Generating config file according to the template
                     customized_config = template_content.replace(

@@ -104,6 +104,7 @@ def process_task(connection, cursor, task):
             """,
             (tid,),
         )
+        connection.commit()  # so the web shows this step as running while it works
 
         result = read_results(tid)
         print(f"Parsed {result['n_polygons']} polygons: {result['panel_count']} panels, "
