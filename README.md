@@ -7,6 +7,7 @@ Airflow + MySQL (Docker) สำหรับตรวจจับแผงโซ�
 
 | ขั้น | ไฟล์ | ทำอะไร |
 |---|---|---|
+| `recover_interrupted` | `dags/recover_interrupted.py` | งานที่ค้าง `running` จากรอบที่หยุดไปกลางคัน → เปลี่ยนเป็น `failed` ให้ retry ตามปกติ (อาศัย `max_active_runs=1`) |
 | `generating_config` | `dags/generating_config.py` | สร้าง `config_<tid>.toml` จาก `dags/templates/template.toml` |
 | `fetch_image` | `dags/fetch_image.py` | ดาวน์โหลดภาพจาก XYZ tile แล้วเขียน GeoTIFF ลง `data/inference/<tid>/input/` |
 | `run_inference` | `dags/run_inference.py` | สั่ง `docker compose run solar 5 -f ...` ของอาจารย์ โดยชี้ `DATA_PATH` มาที่ `data/` ของ repo นี้ |

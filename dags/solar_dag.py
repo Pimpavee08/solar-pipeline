@@ -1,5 +1,6 @@
 from datetime import datetime
 from airflow.sdk import dag, task
+from recover_interrupted import recover_interrupted_tasks
 from generating_config import generating_config_file
 from fetch_image import fetch_image_file
 from run_inference import run_inference_file
@@ -11,6 +12,7 @@ from parse_result import parse_result_file
     # Every minute: each task only picks up rows in `task` waiting for its step,
     # so a run with nothing to do finishes in a few seconds.
     # One run at a time, so a long inference never overlaps the next run.
+    # recover_interrupted also relies on this: do not remove max_active_runs=1.
     schedule="* * * * *",
     max_active_runs=1,
     catchup=False,
@@ -18,6 +20,10 @@ from parse_result import parse_result_file
     tags=['solar', 'config_file_generator'],
 )
 def solar_pipeline():
+
+    @task(task_id="recover_interrupted")
+    def recover_interrupted():
+        recover_interrupted_tasks()
 
     @task(task_id="generating_config")
     def generate_config_files():
@@ -35,6 +41,6 @@ def solar_pipeline():
     def parse_result_files():
         parse_result_file()
 
-    generate_config_files() >> fetch_image_files() >> run_inference_files() >> parse_result_files()
+    recover_interrupted() >> generate_config_files() >> fetch_image_files() >> run_inference_files() >> parse_result_files()
 
 solar_pipeline()
