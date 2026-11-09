@@ -26,8 +26,8 @@ CONTAINER_INFERENCE_PATH = 'data/inference/'
 # Number given to the advisor's program: 5 = solar.inference
 RUN_MODE = "5"
 
-# Longest time one inference run may take before the task fails (seconds)
-INFERENCE_TIMEOUT_SEC = 3 * 60 * 60
+# Longest time one inference run may take before the task fails (seconds): 1 hour, NFR-01
+INFERENCE_TIMEOUT_SEC = 60 * 60
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -42,6 +42,37 @@ def run_command(args, env, timeout):
     if result.returncode != 0:
         raise RuntimeError(f"Command failed (exit {result.returncode}): {' '.join(args)}\n{result.stderr[-2000:]}")
     return result.stdout
+
+
+def container_name(tid):
+    # Fixed name per job, so a run that timed out or was interrupted can be found and removed
+    return f"solar-{tid}"
+
+
+def remove_container(name, env):
+    # Remove a leftover or runaway container; when there is none, docker's error is ignored
+    result = subprocess.run(["docker", "rm", "-f", name], env=env, capture_output=True, text=True, timeout=60)
+    print(f"[run] docker rm -f {name} (exit {result.returncode})")
+
+
+def run_solar(compose, env, tid, container_config_path, timeout=None):
+    # Run the advisor's solar container for one job.
+    # A subprocess timeout only kills `docker compose` itself, not the container it started,
+    # so on timeout the named container is removed too, freeing the GPU.
+    timeout = INFERENCE_TIMEOUT_SEC if timeout is None else timeout
+    name = container_name(tid)
+    remove_container(name, env)  # left over from an earlier, interrupted run
+    try:
+        run_command(
+            compose + ["run", "--rm", "--name", name, "solar", RUN_MODE, "-f", container_config_path],
+            env,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        remove_container(name, env)
+        raise RuntimeError(
+            f"Inference took longer than {timeout // 60} minutes; container {name} was stopped and removed."
+        ) from None
 
 
 def make_container_config(local_config_text, tid):
@@ -94,11 +125,7 @@ def run_job(tid):
 
     # mlflow serves the model registry; --no-recreate leaves it alone if it is already running
     run_command(compose + ["up", "-d", "--no-recreate", "mlflow"], env, timeout=300)
-    run_command(
-        compose + ["run", "--rm", "solar", RUN_MODE, "-f", container_config_path],
-        env,
-        timeout=INFERENCE_TIMEOUT_SEC,
-    )
+    run_solar(compose, env, tid, container_config_path)
 
     # C: Make sure the final shapefile exists (in case the program fails but still exits 0)
     if not any(output_dir.glob("*-corrected.shp")):
