@@ -290,9 +290,10 @@ function refreshPanels() {
   var tids = shownTids();
   tids.forEach(function (tid) { if (!(tid in panelCache)) fetchPanels(tid); });
 
+  // ต้องรวมงานที่ติ๊กไว้ด้วย: ติ๊กงานที่เลือกอยู่แล้ว ชุดแผงไม่เปลี่ยน แต่กรอบ/หน้ากากต้องวาดใหม่
   var key = tids.map(function (tid) {
     return tid + ':' + (typeof panelCache[tid] === 'object' ? 'ok' : panelCache[tid]);
-  }).join(',') + '|' + $('sel_only').checked;
+  }).join(',') + '|' + Object.keys(checked).sort().join(',') + '|' + $('sel_only').checked;
   if (key === panelsKey) return;
   panelsKey = key;
 
