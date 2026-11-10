@@ -92,6 +92,8 @@ services:
 
   mysql:
    image: mysql:8.0.43
+   # Thai time for CURRENT_TIMESTAMP (created_at, started_at, ...) shown on the web
+   command: --default-time-zone=+07:00
    container_name: solar-mysql
    restart: unless-stopped
    environment:
