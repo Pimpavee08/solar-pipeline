@@ -90,12 +90,31 @@
         <div class="rerun-row" id="rerun_row" hidden>
           <button class="btn btn-ghost" id="btn_rerun">Run again from the start</button>
         </div>
+        <!-- งานเสร็จแล้ว → ดาวน์โหลดผล (zip: shapefile, GeoJSON, summary.csv) -->
+        <div class="rerun-row" id="done_row" hidden>
+          <button class="btn btn-ghost" id="btn_download">&#11015; Download results</button>
+        </div>
       </div>
     </div>
 
     <!-- ---------- แท็บ: รายการงาน ---------- -->
     <div class="pane" id="pane_jobs">
       <input type="text" class="search" id="search" placeholder="Search job title...">
+
+      <!-- ติ๊กงานที่เสร็จแล้วหลายงาน → แสดงบนแผนที่พร้อมกัน / ดาวน์โหลดรวมไฟล์เดียว -->
+      <div class="selbar" id="selbar">
+        <div class="selbar-top">
+          <b id="sel_count">Tick finished jobs to combine them</b>
+          <button class="hlink" id="sel_clear" hidden>Clear</button>
+        </div>
+        <label class="lrow"><input type="checkbox" id="sel_only"><span>Show only the ticked areas on the map</span></label>
+        <label class="lrow"><input type="checkbox" id="sel_image"><span>Include the satellite image in downloads (GeoTIFF, large)</span></label>
+        <div class="selbar-acts">
+          <button class="icon-btn" id="sel_zoom">Zoom to ticked</button>
+          <button class="icon-btn primary" id="sel_download">&#11015; Download ticked</button>
+        </div>
+      </div>
+
       <!-- การ์ดงานสร้างโดย ui.js จากตาราง task -->
       <div id="job_list"></div>
       <div class="empty" id="jobs_empty" hidden>No jobs yet<br>Start from the &ldquo;New job&rdquo; tab</div>

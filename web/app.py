@@ -8,16 +8,22 @@ Solar Detection Console — ตัวเชื่อมระหว่างห�
   1. เสิร์ฟหน้าเว็บ (index.html, styles.css, ui.js)
   2. เปิด API ใต้ /api/... ให้ ui.js เรียกอ่าน/เขียนฐานข้อมูล solar_panel_pipeline
 """
+import csv
 import hmac
+import io
+import json
 import os
+import re
 import secrets
+import tempfile
 import uuid
+import zipfile
 from functools import wraps
 from pathlib import Path
 
 import pymysql
 from dotenv import load_dotenv
-from flask import Flask, abort, jsonify, request, send_from_directory, session
+from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent
@@ -271,6 +277,79 @@ def job_panels(tid):
     if RESULTS_DIR not in geojson.parents or not geojson.is_file():
         return jsonify(error='Result file not found'), 404
     return send_from_directory(geojson.parent, geojson.name, mimetype='application/geo+json')
+
+
+def safe_name(text):
+    """ชื่อโฟลเดอร์ใน zip จากชื่องาน — เก็บแค่ตัวอักษร ตัวเลข - _ (ชื่อซ้ำกันได้ จึงต่อท้ายด้วย tid เสมอ)"""
+    cleaned = re.sub(r'[^\w-]+', '_', text or '', flags=re.UNICODE).strip('_')
+    return cleaned[:40] or 'job'
+
+
+def result_dir_file(path):
+    """path ที่อยู่ใน RESULTS_DIR และมีไฟล์จริง ไม่งั้น None (กันส่งไฟล์นอกโฟลเดอร์ผลลัพธ์)"""
+    path = Path(path).resolve()
+    return path if RESULTS_DIR in path.parents and path.is_file() else None
+
+
+@app.get('/api/download')
+@login_required
+def download_results():
+    """ไฟล์ zip ผลของงานที่เลือก (?tid=...&tid=...) — เฉพาะงานที่เสร็จแล้วของผู้ใช้คนนี้
+
+    ในแต่ละงานมี shapefile (*-corrected.*) และ panels.geojson ส่วนรวมทุกงานมี summary.csv
+    กับ panels_all.geojson (รวมแผงทุกงานไว้ไฟล์เดียว) ใส่ ?image=1 เพื่อแนบภาพดาวเทียม GeoTIFF ด้วย (ไฟล์ใหญ่)
+    """
+    wanted = list(dict.fromkeys(request.args.getlist('tid')))[:50]
+    if not wanted:
+        return jsonify(error='Choose at least one job'), 400
+    with_image = request.args.get('image') == '1'
+
+    jobs = [j for j in load_jobs(session['uid']) if j['tid'] in wanted
+            and j['state'] == 'completed' and j['result'] and j['result']['shapefile_path']]
+    if not jobs:
+        return jsonify(error='None of these jobs has a finished result'), 404
+
+    merged = {'type': 'FeatureCollection', 'features': []}
+    summary = io.StringIO()
+    writer = csv.writer(summary)
+    writer.writerow(['title', 'tid', 'created_at', 'min_lat', 'min_lng', 'max_lat', 'max_lng',
+                     'panel_area_m2', 'panel_count', 'capacity_kwp', 'annual_mwh'])
+
+    archive = tempfile.TemporaryFile()   # ลบเองเมื่อส่งเสร็จ (send_file ปิดไฟล์ให้)
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for job in jobs:
+            r = job['result']
+            folder = f"{safe_name(job['title'])}_{job['tid'][:8]}"
+            writer.writerow([job['title'], job['tid'], job['created_at'], *job['bbox'],
+                             r['surface_area'], r['panel_count'], r['power_generation'], r['annual_mwh']])
+
+            shp = Path(r['shapefile_path'])
+            for part in sorted(shp.parent.glob(shp.stem + '.*')):
+                if part.suffix.lower() in ('.shp', '.shx', '.dbf', '.prj', '.cpg') and result_dir_file(part):
+                    zf.write(part, f'{folder}/{part.name}')
+
+            geojson = result_dir_file(shp.with_suffix('.geojson'))
+            if geojson:
+                zf.write(geojson, f'{folder}/panels.geojson')
+                data = json.loads(geojson.read_text(encoding='utf-8'))
+                for feature in data.get('features', []):
+                    feature.setdefault('properties', {}).update(tid=job['tid'], job_title=job['title'])
+                    merged['features'].append(feature)
+
+            if with_image:
+                # ภาพที่ fetch_image เขียนไว้: inference/<tid>/input/<tid>.tif (โฟลเดอร์ output อยู่ข้างกัน)
+                image = result_dir_file(shp.parent.parent / 'input' / f"{job['tid']}.tif")
+                if image:
+                    # ภาพถ่ายบีบอัดแทบไม่ลง → เก็บแบบไม่บีบอัด จะได้เร็ว
+                    zf.write(image, f'{folder}/image.tif', compress_type=zipfile.ZIP_STORED)
+
+        zf.writestr('summary.csv', '﻿' + summary.getvalue())   # BOM ให้ Excel อ่านชื่อภาษาไทยถูก
+        zf.writestr('panels_all.geojson', json.dumps(merged, ensure_ascii=False))
+
+    archive.seek(0)
+    name = (f"{safe_name(jobs[0]['title'])}_{jobs[0]['tid'][:8]}" if len(jobs) == 1
+            else f'solar_results_{len(jobs)}_jobs')
+    return send_file(archive, mimetype='application/zip', as_attachment=True, download_name=name + '.zip')
 
 
 @app.post('/api/jobs')

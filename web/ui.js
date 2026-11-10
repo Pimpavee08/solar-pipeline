@@ -141,9 +141,24 @@ var PANEL_COLOR = '#facc15';
 var MEASURE_COLOR = '#38bdf8';
 var hasMap = !!window.L;     // โหลด Leaflet จาก CDN ไม่ได้ → หน้าเว็บยังใช้ได้ แค่ไม่มีแผนที่
 var DOTS_BELOW_ZOOM = 18;   // ซูมต่ำกว่านี้แสดงแผงเป็นจุด
-var map, baseLayer, aoiLayer, panelsLayer, dotsLayer;
-var panelsTid = null;        // งานที่โหลดรูปแผงมาแสดงอยู่
+var SELECTED_COLOR = '#4ade80';
+var map, baseLayer, aoiLayer, panelsLayer, dotsLayer, selLayer, maskLayer;
 var shownTid = null;         // งานที่แผนที่ซูมไปหาแล้ว (ซูมครั้งเดียวตอนเลือกงาน ไม่ซูมทุกครั้งที่ poll)
+var checked = {};            // งานที่ติ๊กไว้ในแท็บ Jobs: tid → true
+var panelCache = {};         // รูปแผงของแต่ละงาน: tid → GeoJSON | 'loading' | 'missing'
+var panelsKey = null;        // งานชุดที่วาดบนแผนที่อยู่ (ไม่ต้องวาดใหม่ทุกครั้งที่ poll)
+
+// ค่าที่ติ๊กไว้จำไว้ในเบราว์เซอร์นี้ (เปิดแบบ private ก็แค่ไม่จำ)
+try {
+  checked = JSON.parse(localStorage.getItem('solar.checked') || '{}') || {};
+  $('sel_only').checked = localStorage.getItem('solar.only') === '1';
+} catch (e) { checked = {}; }
+function saveChecks() {
+  try {
+    localStorage.setItem('solar.checked', JSON.stringify(checked));
+    localStorage.setItem('solar.only', $('sel_only').checked ? '1' : '0');
+  } catch (e) { /* ไม่จำก็ได้ */ }
+}
 
 function bboxBounds(b) { return L.latLngBounds([b[0], b[1]], [b[2], b[3]]); }
 function boundsToBbox(b) {
@@ -186,6 +201,11 @@ if (hasMap) {
   dotsLayer = L.layerGroup();
   map.on('zoomend', syncPanelLayers);
   syncPanelLayers();
+
+  // "Show only the ticked areas": ทับนอกกรอบงานที่ติ๊กด้วยสีพื้นหลัง เหลือแค่ภาพในกรอบ
+  // pane แยกไว้ใต้ชั้นแผง (overlayPane = 400) แต่เหนือภาพดาวเทียม (tilePane = 200)
+  map.createPane('mask').style.zIndex = 350;
+  selLayer = L.layerGroup().addTo(map);
 }
 
 function syncPanelLayers() {
@@ -225,35 +245,115 @@ function panelStyle() {
 
 // คอลัมน์ใน shapefile ของอาจารย์: no_panel = จำนวนแผงโดยประมาณ, adjusted_a = พื้นที่ (m²) หลังปรับค่า
 function panelPopup(p) {
-  return '<b>' + fmt(p.no_panel, 1) + ' panels</b><br>' +
+  var job = findJob(p._tid);
+  return (job ? '<span style="color:#888">' + esc(job.title) + '</span><br>' : '') +
+    '<b>' + fmt(p.no_panel, 1) + ' panels</b><br>' +
     'Area: ' + fmt(p.adjusted_a, 1) + ' m&sup2;<br>' +
     'Size class: ' + esc(p.size);
 }
 
-function loadPanels(job) {
-  if (!hasMap || panelsTid === job.tid) return;
-  panelsTid = job.tid;
-  api('GET', '/api/jobs/' + job.tid + '/panels')
-    .then(function (geojson) {
-      if (panelsTid !== job.tid) return;          // เลือกงานอื่นไปแล้วระหว่างรอ
-      panelsLayer.clearLayers();
-      panelsLayer.addData(geojson);
-      buildDots();
-      renderDrawer();
-    })
-    .catch(function (err) {
-      if (panelsTid !== job.tid) return;
-      renderDrawer(err.status === 404 ? err.message : 'Could not load the result');
-      if (err.status !== 404) handleError(err);
-    });
+function isDone(job) { return !!job && job.state === 'completed' && !!job.result; }
+
+// งานที่ติ๊กไว้ (เฉพาะที่เสร็จแล้ว)
+function checkedJobs() {
+  return jobs.filter(function (j) { return checked[j.tid] && isDone(j); });
 }
 
-function clearPanels() {
+// งานที่ต้องแสดงแผงบนแผนที่ = งานที่ติ๊กไว้ + งานที่เลือกอยู่ (ถ้าเสร็จแล้ว)
+function shownTids() {
+  var tids = checkedJobs().map(function (j) { return j.tid; });
+  var current = currentTid && findJob(currentTid);
+  if (isDone(current) && tids.indexOf(current.tid) === -1) tids.push(current.tid);
+  return tids;
+}
+
+function fetchPanels(tid) {
+  panelCache[tid] = 'loading';
+  api('GET', '/api/jobs/' + tid + '/panels')
+    .then(function (geojson) {
+      (geojson.features || []).forEach(function (f) {
+        f.properties = f.properties || {};
+        f.properties._tid = tid;        // รู้ว่าแผงนี้มาจากงานไหน (popup / รายการ)
+      });
+      panelCache[tid] = geojson;
+    })
+    .catch(function (err) {
+      panelCache[tid] = 'missing';
+      if (err.status !== 404) handleError(err);
+    })
+    .then(function () { refreshPanels(); });
+}
+
+// วาดแผงของทุกงานใน shownTids() ใหม่ — เรียกบ่อยได้ ถ้าชุดงานไม่เปลี่ยนจะไม่วาดซ้ำ
+function refreshPanels() {
   if (!hasMap) return;
-  panelsTid = null;
+  var tids = shownTids();
+  tids.forEach(function (tid) { if (!(tid in panelCache)) fetchPanels(tid); });
+
+  var key = tids.map(function (tid) {
+    return tid + ':' + (typeof panelCache[tid] === 'object' ? 'ok' : panelCache[tid]);
+  }).join(',') + '|' + $('sel_only').checked;
+  if (key === panelsKey) return;
+  panelsKey = key;
+
   panelsLayer.clearLayers();
-  dotsLayer.clearLayers();
-  renderDrawer();
+  tids.forEach(function (tid) {
+    if (typeof panelCache[tid] === 'object') panelsLayer.addData(panelCache[tid]);
+  });
+  buildDots();
+  var missing = tids.some(function (tid) { return panelCache[tid] === 'missing'; });
+  renderDrawer(missing ? 'Result file not found for this job' : null);
+  drawSelection();
+}
+
+// กรอบสีเขียวของงานที่ติ๊ก + หน้ากากทับนอกกรอบ (ถ้าเปิด "Show only the ticked areas")
+function drawSelection() {
+  if (!hasMap) return;
+  selLayer.clearLayers();
+  if (maskLayer) { map.removeLayer(maskLayer); maskLayer = null; }
+  var boxes = checkedJobs().map(function (j) { return j.bbox; });
+  boxes.forEach(function (b) {
+    L.rectangle(bboxBounds(b), { color: SELECTED_COLOR, weight: 1.5, fill: false, interactive: false }).addTo(selLayer);
+  });
+  if (!$('sel_only').checked || !boxes.length) return;
+
+  var world = [[-89, -540], [89, -540], [89, 540], [-89, 540]];
+  maskLayer = L.polygon([world].concat(unionHoles(boxes)), {
+    pane: 'mask', stroke: false, fillColor: '#0f141a', fillOpacity: 1, interactive: false
+  }).addTo(map);
+}
+
+// กรอบหลายกรอบที่อาจซ้อนกัน → แบ่งเป็นสี่เหลี่ยมที่ไม่ซ้อนกันเลย ใช้เป็นรูของหน้ากาก
+// (รูที่ซ้อนกันจะถูกระบายทับกลับ จึงต้องแบ่งก่อน)
+function unionHoles(boxes) {
+  var uniq = function (arr) { return arr.filter(function (v, i) { return arr.indexOf(v) === i; }).sort(function (a, b) { return a - b; }); };
+  var lats = uniq([].concat.apply([], boxes.map(function (b) { return [b[0], b[2]]; })));
+  var lngs = uniq([].concat.apply([], boxes.map(function (b) { return [b[1], b[3]]; })));
+  var inside = function (lat, lng) {
+    return boxes.some(function (b) { return lat > b[0] && lat < b[2] && lng > b[1] && lng < b[3]; });
+  };
+  var holes = [];
+  for (var i = 0; i < lats.length - 1; i++) {
+    var midLat = (lats[i] + lats[i + 1]) / 2, start = null;
+    for (var j = 0; j < lngs.length; j++) {
+      var on = j < lngs.length - 1 && inside(midLat, (lngs[j] + lngs[j + 1]) / 2);
+      if (on && start === null) start = lngs[j];
+      if (!on && start !== null) {
+        holes.push([[lats[i], start], [lats[i + 1], start], [lats[i + 1], lngs[j]], [lats[i], lngs[j]]]);
+        start = null;
+      }
+    }
+  }
+  return holes;
+}
+
+function zoomToChecked() {
+  var boxes = checkedJobs().map(function (j) { return j.bbox; });
+  if (!boxes.length) { toast('Tick at least one finished job', 'err'); return; }
+  if (!hasMap) return;
+  var bounds = bboxBounds(boxes[0]);
+  boxes.forEach(function (b) { bounds.extend(bboxBounds(b)); });
+  map.fitBounds(bounds, { padding: [60, 60], maxZoom: 19 });
 }
 
 $('l_panels').onchange = syncPanelLayers;
@@ -270,11 +370,14 @@ function renderDrawer(message) {
     return;
   }
   layers.sort(function (a, b) { return (b.feature.properties.no_panel || 0) - (a.feature.properties.no_panel || 0); });
+  var manyJobs = shownTids().length > 1;     // แสดงหลายงาน → บอกด้วยว่าแผงนี้มาจากงานไหน
   $('drawer_body').innerHTML = layers.map(function (layer, i) {
     var p = layer.feature.properties;
+    var job = manyJobs && findJob(p._tid);
     return '<div class="det" data-id="' + L.stamp(layer) + '">' +
       '<div class="det-top"><span>#' + (i + 1) + '</span><b>' + fmt(p.no_panel, 1) + ' panels</b></div>' +
       '<div class="det-sub"><span>' + fmt(p.adjusted_a, 1) + ' m&sup2;</span><span>size ' + esc(p.size) + '</span></div>' +
+      (job ? '<div class="det-job">' + esc(job.title) + '</div>' : '') +
     '</div>';
   }).join('');
 }
@@ -399,11 +502,15 @@ document.querySelectorAll('input[type=range][data-out]').forEach(function (slide
 function loadJobs() {
   return api('GET', '/api/jobs').then(function (data) {
     jobs = data.jobs;
+    // งานที่ถูกลบไปแล้ว (เช่นจากอีกแท็บ) → ไม่ต้องติ๊กค้างไว้
+    Object.keys(checked).forEach(function (tid) { if (!findJob(tid)) delete checked[tid]; });
+    saveChecks();
     renderJobs();
     if (currentTid) {
       var job = findJob(currentTid);
       if (job) showJob(job); else clearJob();
     }
+    refreshPanels();
   });
 }
 
@@ -424,9 +531,13 @@ function renderJobs() {
   $('job_list').innerHTML = shown.map(function (job) {
     var badge = STATE_BADGE[job.state];
     var r = job.result || {};
+    var done = isDone(job);
+    var tick = done && checked[job.tid];
     return '' +
-      '<div class="job' + (job.tid === currentTid ? ' on' : '') + '" data-tid="' + esc(job.tid) + '">' +
+      '<div class="job' + (job.tid === currentTid ? ' on' : '') + (tick ? ' checked' : '') + '" data-tid="' + esc(job.tid) + '">' +
         '<div class="job-top">' +
+          (done ? '<input type="checkbox" class="job-check" data-act="check" title="Show on the map with other ticked jobs"' +
+                  (tick ? ' checked' : '') + '>' : '') +
           '<div class="job-name">' + esc(job.title || 'Untitled job') + '</div>' +
           '<div class="badge ' + badge[0] + '">' + badge[1] + '</div>' +
         '</div>' +
@@ -437,14 +548,56 @@ function renderJobs() {
         '</div>' +
         '<div class="job-acts">' +
           '<button class="icon-btn" data-act="reuse">Reuse area</button>' +
+          (done ? '<button class="icon-btn" data-act="download">&#11015; Download</button>' : '') +
           (job.state === 'failed' ? '<button class="icon-btn" data-act="rerun">Rerun</button>' : '') +
           '<button class="icon-btn danger" data-act="delete">Delete</button>' +
         '</div>' +
       '</div>';
   }).join('');
+  renderSelbar();
+}
+
+function renderSelbar() {
+  var n = checkedJobs().length;
+  $('sel_count').textContent = n ? n + ' job' + (n > 1 ? 's' : '') + ' ticked' : 'Tick finished jobs to combine them';
+  $('sel_clear').hidden = !n;
+  $('sel_zoom').disabled = !n;
+  $('sel_download').disabled = !n;
+  $('sel_download').innerHTML = '&#11015; Download ticked' + (n ? ' (' + n + ')' : '');
 }
 
 $('search').oninput = renderJobs;
+
+$('sel_only').onchange = function () {
+  saveChecks();
+  refreshPanels();
+  if (this.checked && checkedJobs().length) zoomToChecked();
+};
+$('sel_clear').onclick = function () {
+  checked = {};
+  saveChecks();
+  renderJobs();
+  refreshPanels();
+};
+$('sel_zoom').onclick = zoomToChecked;
+$('sel_download').onclick = function () {
+  downloadResults(checkedJobs().map(function (j) { return j.tid; }));
+};
+$('btn_download').onclick = function () { downloadResults([currentTid]); };
+
+// ดาวน์โหลด zip จาก /api/download — ให้เบราว์เซอร์โหลดเอง (ไฟล์อาจใหญ่ ถ้ามีภาพดาวเทียม)
+function downloadResults(tids) {
+  if (!tids.length) return;
+  var query = tids.map(function (tid) { return 'tid=' + encodeURIComponent(tid); }).join('&');
+  if ($('sel_image').checked) query += '&image=1';
+  var link = document.createElement('a');
+  link.href = '/api/download?' + query;
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  toast($('sel_image').checked ? 'Preparing the download (with satellite image, may take a while)' : 'Downloading results');
+}
 
 $('job_list').onclick = function (event) {
   var card = event.target.closest('.job');
@@ -452,7 +605,15 @@ $('job_list').onclick = function (event) {
   var job = findJob(card.dataset.tid);
   var act = event.target.dataset.act;
 
-  if (act === 'reuse') {
+  if (act === 'check') {
+    if (event.target.checked) checked[job.tid] = true; else delete checked[job.tid];
+    saveChecks();
+    renderJobs();
+    refreshPanels();
+    if ($('sel_only').checked && event.target.checked) zoomToChecked();
+  } else if (act === 'download') {
+    downloadResults([job.tid]);
+  } else if (act === 'reuse') {
     document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('on'); });
     setAoi(job.bbox);
     switchTab('new');
@@ -479,7 +640,7 @@ function clearJob() {
   $('pill_job').textContent = 'No job selected';
   renderStepper(null);
   renderStats(null);
-  clearPanels();
+  refreshPanels();      // เหลือแค่งานที่ติ๊กไว้
 }
 
 function showJob(job) {
@@ -495,12 +656,12 @@ function showJob(job) {
     shownTid = job.tid;
     showAoi(job.bbox, true);
   }
-  if (job.state === 'completed' && job.result) loadPanels(job);
-  else if (panelsTid !== null) clearPanels();   // เปลี่ยนงาน หรือสั่งรันใหม่ → ล้างผลเก่าออก
+  refreshPanels();
 }
 
 function renderStepper(job) {
   $('rerun_row').hidden = !job || job.state !== 'failed';
+  $('done_row').hidden = !isDone(job);
   if (!job) {
     $('stepper').innerHTML = Object.keys(STEP_LABELS).map(function (name) {
       return '<div class="pstep"><div class="mk"></div><div>' + STEP_LABELS[name] + '</div></div>';
@@ -586,6 +747,7 @@ function rerunJob(job) {
   api('POST', '/api/jobs/' + job.tid + '/rerun')
     .then(function (data) {
       jobs = jobs.map(function (j) { return j.tid === job.tid ? data.job : j; });
+      delete panelCache[job.tid];      // ผลเก่าถูกลบ → รอบหน้าโหลดผลใหม่
       selectJob(job.tid);
       toast('Job queued again');
     })
@@ -597,8 +759,12 @@ function deleteJob(job) {
   api('DELETE', '/api/jobs/' + job.tid)
     .then(function () {
       jobs = jobs.filter(function (j) { return j.tid !== job.tid; });
+      delete checked[job.tid];
+      delete panelCache[job.tid];
+      saveChecks();
       if (currentTid === job.tid) clearJob();
       renderJobs();
+      refreshPanels();
       toast('Job deleted');
     })
     .catch(handleError);
@@ -660,6 +826,7 @@ function signedIn(user) {
 function signOut() {
   api('POST', '/api/logout').catch(function () {}).then(function () {
     jobs = [];
+    panelCache = {};
     clearJob();
     renderJobs();
     $('user_name').textContent = '—';
@@ -676,6 +843,7 @@ document.addEventListener('keydown', function (event) {
 
 /* ---------------------------------------------------- เริ่มต้น */
 renderStepper(null);
+renderSelbar();
 setAoi(chipBbox(document.querySelector('.chip.on')));
 
 if (location.protocol === 'file:') {

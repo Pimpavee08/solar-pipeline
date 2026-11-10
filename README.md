@@ -25,6 +25,10 @@ Flask (Solar Detection Console) รันเป็นคอนเทนเนอ
 - **Draw area** ลากกรอบเลือกพื้นที่, **Measure** วัดระยะ, **Zoom to result** ซูมไปที่ผลและเปิดรายการแผง
 - งานที่เสร็จแล้วแสดงรูปแผงจาก GeoJSON ที่ `parse_result` เขียนไว้ (`GET /api/jobs/<tid>/panels`)
   คอนเทนเนอร์เว็บอ่าน `data/` แบบ read-only และส่งเฉพาะไฟล์ในโฟลเดอร์นั้น
+- **Download** (งานที่เสร็จแล้ว) ได้ zip: shapefile `*-corrected.*`, `panels.geojson` ของแต่ละงาน,
+  `panels_all.geojson` (รวมทุกงาน) และ `summary.csv` ติ๊ก "Include the satellite image" เพื่อแนบ GeoTIFF ด้วย (`GET /api/download?tid=...&tid=...[&image=1]`)
+- **ติ๊กงานในแท็บ Jobs** เพื่อแสดงแผงของหลายงานบนแผนที่พร้อมกัน, ดาวน์โหลดรวมไฟล์เดียว
+  และ "Show only the ticked areas" ซ่อนแผนที่นอกกรอบงานที่ติ๊ก เหลือแค่พื้นที่ที่สแกนต่อกัน
 
 แก้หน้าเว็บที่ `web/` แล้วอัปเดตด้วย `docker compose up -d --build web`
 
